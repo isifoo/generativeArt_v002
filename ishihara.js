@@ -32,7 +32,9 @@ const SLIDERS = [
   { id: 'ihd', label: 'Size by detail', min: 0, max: 2, step: 0.01, val: 0.7, off: 'edges do not change size' },
   { id: 'ihsc', label: 'Size contrast', min: 1, max: 30, step: 0.5, val: 3, off: 'linear, no curve' },
   { id: 'ihsr', label: 'Size randomness', min: 0, max: 1, step: 0.01, val: 0.28, off: 'no randomness' },
-  { id: 'ihg', label: 'Gap px', min: 0, max: 4, step: 0.1, val: 0.6, off: 'circles touch' },
+  { head: 'Spacing (distance between circles)' },
+  { id: 'ihg', label: 'Gap px', min: 0, max: 20, step: 0.1, val: 0.6, off: 'circles touch' },
+  { id: 'ihgd', label: 'Gap by darkness', min: -1, max: 1, step: 0.01, val: 0, off: 'same gap everywhere' },
   { head: 'Motion (speed of change)' },
   { id: 'ihe', label: 'Colour ease s', min: 0.05, max: 4, step: 0.05, val: 0.35, off: 'instant' },
   { id: 'ihse', label: 'Size ease s', min: 0.05, max: 4, step: 0.05, val: 0.45, off: 'instant' },
@@ -53,7 +55,7 @@ function eff() {
     vd: val('ihvd') < 0 ? 0 : P.ihvd / 100, vl: val('ihvl') < 0 ? 1 : P.ihvl / 100, vvar: Math.max(0, val('ihv')) / 100,
     hcon: val('ihhc'), hsplit: P.on.ihhs ? P.ihhs : 0.5, sat: Math.max(0, val('ihsat')) / 100, hjit: Math.max(0, val('ihhj')),
     rmax: Math.max(mx, mn), rmin: Math.min(mx, mn), sizeDark: Math.max(0, val('ihsz')), sizeDetail: Math.max(0, val('ihd')),
-    dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')),
+    dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')), gdark: P.on.ihgd ? P.ihgd : 0,
     cease: val('ihe'), sease: val('ihse'), repack: Math.max(0, val('ihrp')), smooth: Math.max(0, val('ihf')), hy: Math.max(0, val('ihhy')),
   };
 }
@@ -163,6 +165,8 @@ function sample(a, x, y) {
 // the three drivers, from the base tone t (and edge for size)
 const valueOf = (t, e) => { let v = curve(t, e.vcon, fieldInfo.med); if (e.levels) v = Math.round(v * (e.levels - 1)) / (e.levels - 1); return P.inv ? 1 - v : v; };
 const hueOf = (t, e) => { const h = curve(t, e.hcon, e.hsplit); return P.inv ? 1 - h : h; };
+// gap at a tone: + gap by darkness = light areas get more room, dark areas pack tighter (- = the other way)
+const gapAt = (t, e) => e.gap * Math.max(0, 1 + e.gdark * ((P.inv ? 1 - t : t) - 0.5) * 2);
 const sizeOf = (t, ed, e) => curve(Math.min(1, e.sizeDark * (1 - (P.inv ? 1 - t : t)) + e.sizeDetail * Math.min(1, ed * e.dsens)), e.scon, 0.5);
 
 // ---------------------------------------------------------------- circles (structure of arrays)
@@ -171,9 +175,9 @@ const C = {
   m: new Float32Array(CAP), mv: new Float32Array(CAP), h: new Float32Array(CAP), hv: new Float32Array(CAP),
   rnd: new Float32Array(CAP), shade: new Uint8Array(CAP),
   die: new Uint8Array(CAP), press: new Uint8Array(CAP), rt: new Float32Array(CAP), want: new Float32Array(CAP),
-  lv: new Float32Array(CAP), lh: new Float32Array(CAP),     // value / hue this circle is heading to (held, so no flicker)
+  lv: new Float32Array(CAP), lh: new Float32Array(CAP), g: new Float32Array(CAP),   // g: this circle's gap     // value / hue this circle is heading to (held, so no flicker)
 };
-const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh'];
+const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh', 'g'];
 // size: small where dark and detailed (more resolution), big where light and flat
 function targetR(i, x, y, e) {
   if (C.die[i]) return 0;
@@ -203,13 +207,13 @@ function buildGrid(rmax, gap) {
   }
 }
 // free radius at (x, y): distance to the nearest circle edge (minus gap) or the frame
-function freeAt(x, y, gap, reach) {
+function freeAt(x, y, gs, reach) {
   let free = Math.min(x, SW - x, y, SH - y);
   const cx = (x / cell) | 0, cy = (y / cell) | 0, rc = Math.ceil(reach / cell);
   for (let gy = Math.max(0, cy - rc); gy <= Math.min(GY - 1, cy + rc); gy++)
     for (let gx = Math.max(0, cx - rc); gx <= Math.min(GX - 1, cx + rc); gx++)
       for (let j = head[gy * GX + gx]; j >= 0; j = next[j]) {
-        const d = Math.hypot(C.x[j] - x, C.y[j] - y) - Math.max(C.r[j], C.want[j]) - gap;   // growing circles reserve the size they want
+        const d = Math.hypot(C.x[j] - x, C.y[j] - y) - Math.max(C.r[j], C.want[j]) - (gs + C.g[j]) * 0.5;   // growing circles reserve the size they want
         if (d < free) { free = d; if (free <= 0) return free; }
       }
   return free;
@@ -231,7 +235,7 @@ function removeAt(i) {
 // ---------------------------------------------------------------- one step
 const st = { spawned: 0, killed: 0, ms: 0, fps: 0 };
 function step(dt) {
-  const t0 = performance.now(), e = eff(), gap = e.gap;
+  const t0 = performance.now(), e = eff(), gap = e.gap * (1 + Math.abs(e.gdark));   // gap: the largest gap anywhere (grid size)
   const vstep = e.levels ? 1 / (e.levels - 1) : 0.15;
   // repack speed: how soon and how often a starved circle makes room (0 = never)
   // a circle held under (1 - needAt) of its wished size waits a few frames, then its smallest touching neighbour fades out
@@ -240,7 +244,7 @@ function step(dt) {
   const reach = 1;                                            // grid cells around (cell >= 2 * rmax + gap)
   // 1. each circle wants its size, but only grows into half of the free space around it (Pastiche style)
   for (let i = 0; i < C.n; i++) {
-    const xi = C.x[i], yi = C.y[i], ri = C.r[i], t = sample(base, xi, yi);
+    const xi = C.x[i], yi = C.y[i], ri = C.r[i], t = sample(base, xi, yi), gi = C.g[i] = gapAt(t, e);
     const lv = C.lv[i] = held(C.lv[i], valueOf(t, e), e, vstep);
     const lh = C.lh[i] = held(C.lh[i], hueOf(t, e), e, 0.2);
     const want = targetR(i, xi, yi, e);
@@ -250,7 +254,7 @@ function step(dt) {
       for (let gx = Math.max(0, cx - reach); gx <= Math.min(GX - 1, cx + reach); gx++)
         for (let j = head[gy * GX + gx]; j >= 0; j = next[j]) {
           if (j === i) continue;
-          const s = Math.hypot(C.x[j] - xi, C.y[j] - yi) - ri - C.r[j] - gap;
+          const s = Math.hypot(C.x[j] - xi, C.y[j] - yi) - ri - C.r[j] - (gi + C.g[j]) * 0.5;
           if (s < space) space = s;
           if (s < 1 && !C.die[j] && C.r[j] < nbr) { nbr = C.r[j]; nb = j; }   // smallest touching neighbour
         }
@@ -268,7 +272,7 @@ function step(dt) {
           for (let gx = Math.max(0, cx - reach); gx <= Math.min(GX - 1, cx + reach); gx++)
             for (let j = head[gy * GX + gx]; j >= 0; j = next[j]) {
               if (j === i || C.die[j] || C.r[j] > ri) continue;
-              if (Math.hypot(C.x[j] - xi, C.y[j] - yi) < want + C.r[j] * 0.5 + gap) { C.die[j] = 1; st.killed++; }
+              if (Math.hypot(C.x[j] - xi, C.y[j] - yi) < want + C.r[j] * 0.5 + gi) { C.die[j] = 1; st.killed++; }
             }
         C.press[i] = 0;
       }
@@ -282,12 +286,12 @@ function step(dt) {
   // 2. one light pass to clear any leftover overlap
   buildGrid(e.rmax, gap);
   for (let i = 0; i < C.n; i++) {
-    const xi = C.x[i], yi = C.y[i], ri = C.r[i], cx = (xi / cell) | 0, cy = (yi / cell) | 0;
+    const xi = C.x[i], yi = C.y[i], ri = C.r[i], gi = C.g[i], cx = (xi / cell) | 0, cy = (yi / cell) | 0;
     for (let gy = Math.max(0, cy - 1); gy <= Math.min(GY - 1, cy + 1); gy++)
       for (let gx = Math.max(0, cx - 1); gx <= Math.min(GX - 1, cx + 1); gx++)
         for (let j = head[gy * GX + gx]; j >= 0; j = next[j]) {
           if (j <= i) continue;
-          const dx = C.x[j] - xi, dy = C.y[j] - yi, rr = ri + C.r[j] + gap, d2 = dx * dx + dy * dy;
+          const dx = C.x[j] - xi, dy = C.y[j] - yi, rr = ri + C.r[j] + (gi + C.g[j]) * 0.5, d2 = dx * dx + dy * dy;
           if (d2 >= rr * rr) continue;
           const d = Math.sqrt(d2) + 1e-6, o = (rr - d) * 0.5, ux = dx / d, uy = dy / d;
           const ai = ri * ri + 0.01, aj = C.r[j] * C.r[j] + 0.01, wi = aj / (ai + aj), wj = ai / (ai + aj);
@@ -305,9 +309,9 @@ function step(dt) {
   const tries = C.n < 200 ? 6000 : 900;
   for (let k = 0; k < tries; k++) {
     const x = Math.random() * SW, y = Math.random() * SH;
-    const free = freeAt(x, y, gap, e.rmax * 2 + gap);
+    const gs = gapAt(fieldReady ? sample(base, x, y) : 0.5, e), free = freeAt(x, y, gs, e.rmax * 2 + gap);
     if (free >= e.rmin * 0.9 && C.n < CAP) {
-      const i = C.n; addCircle(x, y, e); st.spawned++;
+      const i = C.n; addCircle(x, y, e); C.g[i] = gs; st.spawned++;
       C.want[i] = Math.min(free, targetR(i, x, y, e));   // reserve its room so the next spawn keeps away
       const c = Math.min(GX - 1, (x / cell) | 0) + Math.min(GY - 1, (y / cell) | 0) * GX; next[i] = head[c]; head[c] = i;
     }
@@ -383,7 +387,7 @@ $('#ihinv').onchange = (e) => { P.inv = e.target.checked; dirty = true; };
 $('#ihprev').onchange = (e) => { P.prev = e.target.checked; };
 $('#restart').onclick = () => { C.n = 0; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r3');                                       // r3: slider set changed in v1.31, older saved defaults are dropped
+initDefaults('.r3');                                       // r3: slider set of v1.31 (v1.32 only added sliders, saved defaults still apply)
 
 window.__state = { C, P, eff, base, edge, fieldInfo, st };
 requestAnimationFrame(loop);
