@@ -18,7 +18,7 @@ for (const v of VERSIONS) {
   $('#versions').append(b);
 }
 document.querySelectorAll('[data-views]').forEach((el) => { el.hidden = !el.dataset.views.split(',').includes(VIEW); });
-$('#setHead').textContent = VERSIONS.find((v) => v.id === VIEW).label + ' settings';
+$('#setHead').textContent = 'Edit: ' + VERSIONS.find((v) => v.id === VIEW).label;
 
 // ---------------------------------------------------------------- slider hold
 // While a slider moves, a version can hold its heavy work so the slider stays smooth.
@@ -68,7 +68,7 @@ export function buildSliders(list, P) {
   return (id) => (P.on[id] ? P[id] : -1);              // val(id): the value, or -1 when off
 }
 
-// ---------------------------------------------------------------- Settings button
+// ---------------------------------------------------------------- Edit button (closed by default: clean for viewing)
 const UIKEY = 'genArt002.ui';
 const setOpen = (open) => {
   $('#settings').hidden = !open; $('#setbtn').classList.toggle('on', open);
@@ -76,7 +76,7 @@ const setOpen = (open) => {
 };
 $('#setbtn').onclick = () => setOpen($('#settings').hidden);
 $('#setclose').onclick = () => setOpen(false);
-setOpen((() => { try { return localStorage.getItem(UIKEY) !== '0'; } catch { return true; } })());
+setOpen((() => { try { return localStorage.getItem(UIKEY) === '1'; } catch { return false; } })());
 
 // ---------------------------------------------------------------- video source
 export const vid = $('#vid');

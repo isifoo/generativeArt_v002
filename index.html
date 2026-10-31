@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261031090000">
+<meta name="build" content="20261031150000">
 <style>
   :root { --bg:#141414; --panel:#1c1c1c; --line:#2e2e2e; --fg:#e8e6e3; --dim:#8a8784; --accent:#d23219; }
   * { box-sizing:border-box; }
@@ -13,7 +13,8 @@
   #stage { flex:0 0 auto; height:100%; aspect-ratio:9/16; position:relative; background:#000; border-radius:4px; overflow:hidden; }
   #stage canvas, #stage video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
   #vid { visibility:hidden; }
-  #side { flex:1; min-width:280px; overflow:auto; display:flex; flex-direction:column; gap:14px; }
+  #side { flex:0 0 auto; display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+  #msg:empty { display:none; }
   h2 { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
   .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
   button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:7px 12px; font:inherit; cursor:pointer; }
@@ -46,7 +47,8 @@
   .sl.off output { color:#e8b04a; }
   .ctl { display:grid; grid-template-columns:118px 1fr; gap:8px; align-items:center; margin:5px 0; }
   input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--line); background:none; }
-  @media (max-width:760px) { #app { flex-direction:column; height:auto; } #stage { height:70vh; align-self:center; } }
+  @media (max-width:760px) { #app { flex-direction:column; height:auto; } #stage { height:78vh; align-self:center; } #side { align-items:center; } }
+  @media (max-width:760px) { .sl { grid-template-columns:1fr 40px 54px 34px; row-gap:0; margin:8px 0; } .sl .lab { grid-column:1 / -1; } .cols { display:none; } .ctl { grid-template-columns:90px 1fr; } }
 </style>
 </head>
 <body>
@@ -58,39 +60,27 @@
   </div>
   <div id="newver" hidden style="position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9;background:#d23219;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer">New version available. Click to reload.</div>
   <div id="side">
-    <div>
-      <h2>Generative Art v002 <span id="ver" style="text-transform:none;letter-spacing:0;font-weight:400">v1.10 (2026-10-31)</span></h2>
-      <div class="row" id="versions"></div>
-    </div>
+    <div class="row" id="versions"></div>
+    <div class="row"><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
-    <div>
-      <h2>Actions</h2>
-      <div class="row">
-        <button id="setbtn" type="button">Settings</button>
-        <button id="cam" type="button">Camera</button>
-        <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
-        <button id="restart" type="button">Restart</button>
-      </div>
-    </div>
-    <div>
-      <h2>Input</h2>
-      <div class="ctl" data-views="line"><span>Subject</span><select id="subject" data-save><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
-      <label class="note"><input type="checkbox" id="mirror" checked data-save> mirror camera</label><br>
-      <label class="note" data-views="line"><input type="checkbox" id="key" data-save> key out red (red background only)</label>
-    </div>
-    <div>
-      <h2>Render time (measured on this GPU)</h2>
-      <div class="bar"><i id="budget"></i></div>
-      <table id="stats"></table>
-    </div>
+    <div class="note" id="ver">Generative Art v002 · v1.20 (2026-10-31)</div>
   </div>
 </div>
 
 <div id="settings" hidden>
-  <div class="head"><h2 id="setHead" style="margin:0">Settings</h2><button id="setclose" type="button" title="Close">x</button></div>
+  <div class="head"><h2 id="setHead" style="margin:0">Edit</h2><button id="setclose" type="button" title="Close">x</button></div>
+  <div class="row" style="margin-bottom:8px">
+    <button id="cam" type="button">Camera</button>
+    <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
+    <button id="restart" type="button">Restart</button>
+  </div>
+  <div class="ctl"><span>Input</span><label class="note"><input type="checkbox" id="mirror" checked data-save> mirror camera</label></div>
+  <div class="ctl" data-views="line"><span>Subject</span><select id="subject" data-save><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
+  <div class="ctl" data-views="line"><span>Red key</span><label class="note"><input type="checkbox" id="key" data-save> key out red (red background only)</label></div>
   <div class="ctl" data-views="line"><span>Line / paper</span><span><input type="color" id="fg" value="#d23219" data-save> <input type="color" id="bg" value="#f2f0ee" data-save></span></div>
-  <div class="ctl" data-views="ishihara"><span>Palette</span><select id="ihpal" data-save><option value="classic" selected>Classic (orange on green)</option><option value="pastel">Pastel (pink on blue)</option><option value="bw">Black / white</option><option value="red">Red / paper</option></select></div>
-  <div class="ctl" data-views="ishihara"><span>Figure</span><label class="note"><input type="checkbox" id="ihinv" data-save> figure is the lighter side</label></div>
+  <div class="ctl" data-views="ishihara"><span>Palette</span><select id="ihpal" data-save><option value="classic" selected>Classic (red, orange, green)</option><option value="pastel">Pastel (plum, pink, blue)</option><option value="bw">Black / white</option><option value="red">Red / paper</option></select></div>
+  <div class="ctl" data-views="ishihara"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (bright video = dark circles)</label></div>
+  <div class="ctl" data-views="ishihara"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the tone map the circles follow</label></div>
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
   <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change.</p>
@@ -98,6 +88,9 @@
     <button id="setdef" type="button">Set default</button>
     <button id="resetdef" type="button">Reset defaults</button>
   </div>
+  <h2 style="margin-top:14px">Render time (measured on this device)</h2>
+  <div class="bar"><i id="budget"></i></div>
+  <table id="stats"></table>
 </div>
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
