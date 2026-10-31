@@ -12,14 +12,11 @@ const CAP = 30000;
 // ---------------------------------------------------------------- sliders (-1 = off)
 const SLIDERS = [
   { head: 'Contrast (the base tone from the video)' },
-  { id: 'ihlo', label: 'Black point %', min: 0, max: 20, step: 0.5, val: 1, off: 'no auto levels: raw video black' },
-  { id: 'ihhi', label: 'White point %', min: 0, max: 20, step: 0.5, val: 1, off: 'no auto levels: raw video white' },
+  { id: 'ihlo', label: 'Levels clip %', min: 0, max: 20, step: 0.5, val: 1, off: 'no auto levels: raw video' },
   { id: 'ihl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 1.6, off: 'global tone only' },
-  { id: 'ihlr', label: 'Local radius px', min: 8, max: 240, step: 4, val: 40, off: 'local contrast off' },
   { id: 'ihth', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
   { head: 'Value (dark / light of each circle)' },
   { id: 'ihc', label: 'Value contrast', min: 1, max: 30, step: 0.5, val: 7, off: 'linear, no curve' },
-  { id: 'ihk', label: 'Value levels', min: 2, max: 10, step: 1, val: 4, off: 'continuous value' },
   { id: 'ihvd', label: 'Darkest value %', min: 0, max: 100, step: 1, val: 40, off: '0 (black)' },
   { id: 'ihvl', label: 'Lightest value %', min: 0, max: 100, step: 1, val: 70, off: '100 (white)' },
   { id: 'ihv', label: 'Value variety %', min: 0, max: 20, step: 0.5, val: 4, off: 'flat values' },
@@ -32,8 +29,7 @@ const SLIDERS = [
   { id: 'ihmax', label: 'Max circle px', min: 4, max: 40, step: 0.5, val: 11, off: 'all circles min size' },
   { id: 'ihmin', label: 'Min circle px', min: 1.5, max: 12, step: 0.25, val: 2.5, off: 'all circles max size' },
   { id: 'ihsz', label: 'Size by darkness', min: 0, max: 1, step: 0.01, val: 0.45, off: 'darkness does not change size' },
-  { id: 'ihd', label: 'Size by detail', min: 0, max: 1, step: 0.01, val: 0.7, off: 'edges do not change size' },
-  { id: 'ihds', label: 'Detail sensitivity', min: 0.2, max: 4, step: 0.05, val: 1, off: '1' },
+  { id: 'ihd', label: 'Size by detail', min: 0, max: 2, step: 0.01, val: 0.7, off: 'edges do not change size' },
   { id: 'ihsc', label: 'Size contrast', min: 1, max: 30, step: 0.5, val: 3, off: 'linear, no curve' },
   { id: 'ihsr', label: 'Size randomness', min: 0, max: 1, step: 0.01, val: 0.28, off: 'no randomness' },
   { id: 'ihg', label: 'Gap px', min: 0, max: 4, step: 0.1, val: 0.6, off: 'circles touch' },
@@ -51,13 +47,13 @@ function eff() {
   let mx = val('ihmax'), mn = val('ihmin');
   if (mx < 0 && mn < 0) { mx = mn = 8; } else if (mx < 0) { mx = mn; } else if (mn < 0) { mn = mx; }
   return {
-    lo: val('ihlo'), hi: val('ihhi'), local: val('ihlr') < 0 ? 0 : Math.max(0, val('ihl')), lrad: Math.max(1, Math.round(Math.max(8, P.ihlr) / 4)),
+    lo: val('ihlo'), hi: val('ihlo'), local: Math.max(0, val('ihl')), lrad: 10,   // local contrast radius: 10 cells = 40 px
     th: P.on.ihth ? P.ihth : 0,
-    vcon: val('ihc'), levels: val('ihk') < 0 ? 0 : Math.round(P.ihk),
+    vcon: val('ihc'), levels: 0,
     vd: val('ihvd') < 0 ? 0 : P.ihvd / 100, vl: val('ihvl') < 0 ? 1 : P.ihvl / 100, vvar: Math.max(0, val('ihv')) / 100,
     hcon: val('ihhc'), hsplit: P.on.ihhs ? P.ihhs : 0.5, sat: Math.max(0, val('ihsat')) / 100, hjit: Math.max(0, val('ihhj')),
     rmax: Math.max(mx, mn), rmin: Math.min(mx, mn), sizeDark: Math.max(0, val('ihsz')), sizeDetail: Math.max(0, val('ihd')),
-    dsens: P.on.ihds ? P.ihds : 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')),
+    dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')),
     cease: val('ihe'), sease: val('ihse'), repack: Math.max(0, val('ihrp')), smooth: Math.max(0, val('ihf')), hy: Math.max(0, val('ihhy')),
   };
 }
@@ -387,7 +383,7 @@ $('#ihinv').onchange = (e) => { P.inv = e.target.checked; dirty = true; };
 $('#ihprev').onchange = (e) => { P.prev = e.target.checked; };
 $('#restart').onclick = () => { C.n = 0; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r2');                                       // r2: slider set changed in v1.30, older saved defaults are dropped
+initDefaults('.r3');                                       // r3: slider set changed in v1.31, older saved defaults are dropped
 
 window.__state = { C, P, eff, base, edge, fieldInfo, st };
 requestAnimationFrame(loop);
