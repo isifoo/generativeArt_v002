@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generative Art v002</title>
+<meta name="build" content="20261030120000">
+<style>
+  :root { --bg:#141414; --panel:#1c1c1c; --line:#2e2e2e; --fg:#e8e6e3; --dim:#8a8784; --accent:#d23219; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.45 system-ui, Segoe UI, sans-serif; }
+  #app { display:flex; height:100vh; gap:16px; padding:16px; }
+  #stage { flex:0 0 auto; height:100%; aspect-ratio:9/16; position:relative; background:#000; border-radius:4px; overflow:hidden; }
+  #stage canvas, #stage video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+  #vid { visibility:hidden; }
+  #side { flex:1; min-width:280px; overflow:auto; display:flex; flex-direction:column; gap:14px; }
+  h2 { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 6px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover { border-color:#555; }
+  button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .note { color:var(--dim); font-size:12px; }
+  #msg { color:#e8b04a; white-space:pre-wrap; font:12px ui-monospace, Consolas, monospace; }
+  table { width:100%; border-collapse:collapse; font:12px ui-monospace, Consolas, monospace; font-variant-numeric:tabular-nums; }
+  td { padding:2px 0; } td:last-child { text-align:right; }
+  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:6px 0; }
+  .bar i { display:block; height:100%; background:var(--accent); width:0; }
+  #drop { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#000c; color:#fff; font-size:16px; }
+  [hidden] { display:none !important; }
+
+  /* settings panel: opened by the Settings button, floats over the right side */
+  #settings { position:fixed; top:16px; right:16px; width:min(460px, calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto;
+              background:#181818f2; border:1px solid var(--line); border-radius:6px; padding:12px 14px; z-index:5; box-shadow:0 8px 30px #0008; }
+  #settings .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  #settings .head button { padding:2px 9px; }
+  .cols, .sl { display:grid; grid-template-columns:118px 1fr 44px 58px 34px; gap:8px; align-items:center; }
+  .cols { color:var(--dim); font-size:11px; margin-bottom:2px; }
+  .cols span:nth-child(3), .cols span:nth-child(4), .cols span:nth-child(5) { text-align:center; }
+  .sl { margin:5px 0; }
+  .sl output { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .sl input[type=range] { width:100%; accent-color:var(--accent); touch-action:none; }
+  .sl .mx { width:100%; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:3px; padding:2px 4px; font:inherit; }
+  .onoff { display:flex; align-items:center; gap:2px; cursor:pointer; font-style:normal; color:var(--dim); font-size:11px; }
+  .onoff i { font-style:normal; }
+  .sl.off .lab, .sl.off output { color:#5a5856; }
+  .sl.off output { color:#e8b04a; }
+  .ctl { display:grid; grid-template-columns:118px 1fr; gap:8px; align-items:center; margin:5px 0; }
+  input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--line); background:none; }
+  @media (max-width:760px) { #app { flex-direction:column; height:auto; } #stage { height:70vh; align-self:center; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <video id="vid" muted loop playsinline></video>
+    <canvas id="cv" width="1080" height="1920"></canvas>
+    <div id="drop">Drop a video here</div>
+  </div>
+  <div id="newver" hidden style="position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9;background:#d23219;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer">New version available. Click to reload.</div>
+  <div id="side">
+    <div>
+      <h2>Generative Art v002 <span id="ver" style="text-transform:none;letter-spacing:0;font-weight:400">v1.00 (2026-10-30)</span></h2>
+      <div class="row"><button class="on" type="button">V1 Line</button></div>
+    </div>
+    <div id="msg"></div>
+    <div>
+      <h2>Actions</h2>
+      <div class="row">
+        <button id="setbtn" type="button">Settings</button>
+        <button id="cam" type="button">Camera</button>
+        <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
+        <button id="restart" type="button">Restart line</button>
+      </div>
+    </div>
+    <div>
+      <h2>Input</h2>
+      <div class="ctl"><span>Subject</span><select id="subject"><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
+      <label class="note"><input type="checkbox" id="mirror" checked> mirror camera</label><br>
+      <label class="note"><input type="checkbox" id="key"> key out red (red background only)</label>
+    </div>
+    <div>
+      <h2>Render time (measured on this GPU)</h2>
+      <div class="bar"><i id="budget"></i></div>
+      <table id="stats"></table>
+    </div>
+  </div>
+</div>
+
+<div id="settings" hidden>
+  <div class="head"><h2 style="margin:0">V1 Line settings</h2><button id="setclose" type="button" title="Close">x</button></div>
+  <div class="ctl"><span>Line / paper</span><span><input type="color" id="fg" value="#d23219"> <input type="color" id="bg" value="#f2f0ee"></span></div>
+  <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
+  <div id="sliders"></div>
+  <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). The sim pauses while you drag and catches up when you let go.</p>
+  <div class="row">
+    <button id="setdef" type="button">Set default</button>
+    <button id="resetdef" type="button">Reset defaults</button>
+  </div>
+</div>
+<script type="module" src="line.js?b=20261030120000"></script>
+</body>
+</html>
