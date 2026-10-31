@@ -33,13 +33,16 @@ const SLIDERS = [
   { id: 'ihsc', label: 'Size contrast', min: 1, max: 30, step: 0.5, val: 3, off: 'linear, no curve' },
   { id: 'ihsr', label: 'Size randomness', min: 0, max: 1, step: 0.01, val: 0.28, off: 'no randomness' },
   { head: 'Spacing (distance between circles)' },
-  { id: 'ihg', label: 'Gap px', min: 0, max: 20, step: 0.1, val: 0.6, off: 'circles touch' },
+  { id: 'ihg', label: 'Gap px', min: 0, max: 20, step: 0.1, val: 0.3, off: 'circles touch' },
   { id: 'ihgd', label: 'Gap by darkness', min: -1, max: 1, step: 0.01, val: 0, off: 'same gap everywhere' },
+  { id: 'ihfl', label: 'Fill holes', min: 0, max: 1, step: 0.01, val: 1, off: 'no filler dots, only normal circles' },
   { head: 'Motion (speed of change)' },
   { id: 'ihe', label: 'Colour ease s', min: 0.05, max: 4, step: 0.05, val: 0.35, off: 'instant' },
   { id: 'ihse', label: 'Size ease s', min: 0.05, max: 4, step: 0.05, val: 0.45, off: 'instant' },
   { id: 'ihrp', label: 'Repack speed', min: 0, max: 1, step: 0.01, val: 0.7, off: 'no repacking (sizes only shrink / fill)' },
   { id: 'ihf', label: 'Tone smoothing', min: 0, max: 0.95, step: 0.01, val: 0.15, off: 'no smoothing' },
+  { id: 'ihw', label: 'Wiggle px', min: 0, max: 4, step: 0.05, val: 0.6, off: 'still' },
+  { id: 'ihws', label: 'Wiggle speed', min: 0, max: 3, step: 0.05, val: 0.5, off: 'still' },
   { id: 'ihhy', label: 'Change threshold', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no hold: follows every change' },
 ];
 const P = { pal: 'classic', inv: false, prev: false };
@@ -55,7 +58,7 @@ function eff() {
     vd: val('ihvd') < 0 ? 0 : P.ihvd / 100, vl: val('ihvl') < 0 ? 1 : P.ihvl / 100, vvar: Math.max(0, val('ihv')) / 100,
     hcon: val('ihhc'), hsplit: P.on.ihhs ? P.ihhs : 0.5, sat: Math.max(0, val('ihsat')) / 100, hjit: Math.max(0, val('ihhj')),
     rmax: Math.max(mx, mn), rmin: Math.min(mx, mn), sizeDark: Math.max(0, val('ihsz')), sizeDetail: Math.max(0, val('ihd')),
-    dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')), gdark: P.on.ihgd ? P.ihgd : 0,
+    dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')), gdark: P.on.ihgd ? P.ihgd : 0, fill: Math.max(0, val('ihfl')), wig: Math.max(0, val('ihw')), wigs: Math.max(0, val('ihws')),
     cease: val('ihe'), sease: val('ihse'), repack: Math.max(0, val('ihrp')), smooth: Math.max(0, val('ihf')), hy: Math.max(0, val('ihhy')),
   };
 }
@@ -175,9 +178,10 @@ const C = {
   m: new Float32Array(CAP), mv: new Float32Array(CAP), h: new Float32Array(CAP), hv: new Float32Array(CAP),
   rnd: new Float32Array(CAP), shade: new Uint8Array(CAP),
   die: new Uint8Array(CAP), press: new Uint8Array(CAP), rt: new Float32Array(CAP), want: new Float32Array(CAP),
-  lv: new Float32Array(CAP), lh: new Float32Array(CAP), g: new Float32Array(CAP),   // g: this circle's gap     // value / hue this circle is heading to (held, so no flicker)
+  lv: new Float32Array(CAP), lh: new Float32Array(CAP), g: new Float32Array(CAP),   // g: this circle's gap
+  ph: new Float32Array(CAP),                                  // wiggle phase     // value / hue this circle is heading to (held, so no flicker)
 };
-const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh', 'g'];
+const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh', 'g', 'ph'];
 // size: small where dark and detailed (more resolution), big where light and flat
 function targetR(i, x, y, e) {
   if (C.die[i]) return 0;
@@ -221,7 +225,7 @@ function freeAt(x, y, gs, reach) {
 function addCircle(x, y, e) {
   if (C.n >= CAP) return;
   const i = C.n++;
-  C.x[i] = x; C.y[i] = y; C.r[i] = 0; C.rv[i] = 0; C.rnd[i] = Math.random();
+  C.x[i] = x; C.y[i] = y; C.r[i] = 0; C.rv[i] = 0; C.rnd[i] = Math.random(); C.ph[i] = Math.random() * 1000;
   C.shade[i] = (Math.random() * SHADES) | 0; C.die[i] = 0; C.press[i] = 0;
   const t = fieldReady ? sample(base, x, y) : 0.5;
   C.lv[i] = C.m[i] = valueOf(t, e); C.lh[i] = C.h[i] = hueOf(t, e);   // new circles start in their colour and grow in from zero
@@ -258,8 +262,11 @@ function step(dt) {
           if (s < space) space = s;
           if (s < 1 && !C.die[j] && C.r[j] < nbr) { nbr = C.r[j]; nb = j; }   // smallest touching neighbour
         }
-    const cap = ri + (space > 0 ? space * 0.5 : space);
-    const rt = C.die[i] ? 0 : Math.max(0, Math.min(want, cap));
+    // fill holes: push a little into the neighbours (the relaxation below moves them apart into the holes, like packing marbles)
+    const cap = ri + (space > 0 ? space * 0.5 : space) + (C.die[i] ? 0 : e.fill * (0.08 * ri + 0.15));
+    // fill holes: a circle with free room around it grows into it (up to max size), so the paper closes up
+    const grow = space > 0 ? Math.min(cap, want + (Math.max(want, e.rmax) - want) * e.fill) : want;
+    const rt = C.die[i] ? 0 : Math.max(0, Math.min(grow, cap));
     C.rt[i] = rt;
     // starved: held well under its wished size by the neighbours -> the smallest touching neighbour fades out
     const need = 1 - cap / Math.max(want, 1e-3), wait = rp > 0 && need > needAt ? waitN : 0;
@@ -283,7 +290,8 @@ function step(dt) {
     damp(C.m[i], C.mv[i], lv, e.cease, dt); C.m[i] = clamp01(tmp2[0]); C.mv[i] = tmp2[1];
     damp(C.h[i], C.hv[i], lh, e.cease, dt); C.h[i] = clamp01(tmp2[0]); C.hv[i] = tmp2[1];
   }
-  // 2. one light pass to clear any leftover overlap
+  // 2. relaxation: push overlapping circles apart (two passes), this is what moves them into the holes
+  for (let pass = 0; pass < 2; pass++) {
   buildGrid(e.rmax, gap);
   for (let i = 0; i < C.n; i++) {
     const xi = C.x[i], yi = C.y[i], ri = C.r[i], gi = C.g[i], cx = (xi / cell) | 0, cy = (yi / cell) | 0;
@@ -302,15 +310,18 @@ function step(dt) {
     const r = C.r[i];
     C.x[i] = Math.min(SW - r, Math.max(r, C.x[i])); C.y[i] = Math.min(SH - r, Math.max(r, C.y[i]));
   }
+  }
   // 3. faded out circles leave
   for (let i = C.n - 1; i >= 0; i--) if (C.die[i] && C.r[i] < 0.25) removeAt(i);
   // 4. fill the gaps: new circles grow in from zero
   buildGrid(e.rmax, gap);
-  const tries = C.n < 200 ? 6000 : 900;
+  // fill holes: down to tiny filler dots, so hardly any paper shows. Smallest dot = min circle (fill 0) .. 0.6 px (fill 1)
+  const fillMin = e.fill > 0 ? e.rmin * 0.9 + (0.6 - e.rmin * 0.9) * e.fill : e.rmin * 0.9;
+  const tries = C.n < 200 ? 6000 : 1200;
   for (let k = 0; k < tries; k++) {
     const x = Math.random() * SW, y = Math.random() * SH;
     const gs = gapAt(fieldReady ? sample(base, x, y) : 0.5, e), free = freeAt(x, y, gs, e.rmax * 2 + gap);
-    if (free >= e.rmin * 0.9 && C.n < CAP) {
+    if (free >= fillMin && C.n < CAP) {
       const i = C.n; addCircle(x, y, e); C.g[i] = gs; st.spawned++;
       C.want[i] = Math.min(free, targetR(i, x, y, e));   // reserve its room so the next spawn keeps away
       const c = Math.min(GX - 1, (x / cell) | 0) + Math.min(GY - 1, (y / cell) | 0) * GX; next[i] = head[c]; head[c] = i;
@@ -339,7 +350,7 @@ function draw() {
   }
   ctx.fillStyle = pal.paper; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-  const buckets = new Map();
+  const buckets = new Map(), wa = e.wig, wt = performance.now() / 1000 * e.wigs * Math.PI * 2;
   for (let i = 0; i < C.n; i++) {
     if (C.r[i] <= 0.15) continue;
     const k = Math.round(C.h[i] * HQ) * 10000 + Math.round(C.m[i] * VQ) * 10 + C.shade[i];
@@ -347,7 +358,12 @@ function draw() {
   }
   for (const [k, L] of buckets) {
     ctx.beginPath();
-    for (const i of L) { ctx.moveTo(C.x[i] + C.r[i], C.y[i]); ctx.arc(C.x[i], C.y[i], C.r[i], 0, Math.PI * 2); }
+    for (const i of L) {
+      // wiggle: each dot drifts on its own slow, irregular path (two sines per axis), drawn only, the packing stays exact
+      let x = C.x[i], y = C.y[i];
+      if (wa > 0) { const p = C.ph[i]; x += wa * (0.6 * Math.sin(wt + p) + 0.4 * Math.sin(wt * 1.73 + p * 1.3)); y += wa * (0.6 * Math.sin(wt * 1.21 + p * 0.7) + 0.4 * Math.sin(wt * 0.83 + p * 1.9)); }
+      ctx.moveTo(x + C.r[i], y); ctx.arc(x, y, C.r[i], 0, Math.PI * 2);
+    }
     ctx.fillStyle = fillOf((k / 10000) | 0, ((k % 10000) / 10) | 0, k % 10, e, pal); ctx.fill();
   }
 }
