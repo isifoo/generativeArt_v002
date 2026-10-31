@@ -1,0 +1,178 @@
+// Shared UI for every version: version buttons, Settings panel, slider rows (value, max field, -1 box),
+// slider hold, camera / video source, Set default, version check.
+export const $ = (s) => document.querySelector(s);
+export const msg = (m) => { $('#msg').textContent = m; };
+export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+
+// ---------------------------------------------------------------- versions (each one is a button)
+export const VERSIONS = [
+  { id: 'line', label: 'V1 Line' },
+  { id: 'ishihara', label: 'Ishihara' },
+];
+const qv = new URLSearchParams(location.search).get('view');
+export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
+for (const v of VERSIONS) {
+  const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
+  b.classList.toggle('on', v.id === VIEW);
+  b.onclick = () => { if (v.id !== VIEW) location.search = '?view=' + v.id; };
+  $('#versions').append(b);
+}
+document.querySelectorAll('[data-views]').forEach((el) => { el.hidden = !el.dataset.views.split(',').includes(VIEW); });
+$('#setHead').textContent = VERSIONS.find((v) => v.id === VIEW).label + ' settings';
+
+// ---------------------------------------------------------------- slider hold
+// While a slider moves, a version can hold its heavy work so the slider stays smooth.
+// It resumes HOLD_MS after the last move.
+const HOLD_MS = 250;
+export const hold = {
+  drag: false, until: 0, redraw: false,
+  active() { return this.drag || performance.now() < this.until; },
+  poke() { this.until = performance.now() + HOLD_MS; this.redraw = true; },
+};
+addEventListener('pointerup', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
+addEventListener('pointercancel', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
+
+// ---------------------------------------------------------------- slider rows
+// list entries: { id, label, min, max, step, val, off }. Off sends -1 (P.on[id] = false).
+const fmt = (v, step) => { const d = (String(step).split('.')[1] || '').length; return Number(v).toFixed(d); };
+export const rows = {};
+export function buildSliders(list, P) {
+  P.on = P.on || {};
+  for (const s of list) {
+    P[s.id] = s.val; P.on[s.id] = true;
+    const row = document.createElement('div'); row.className = 'sl';
+    row.innerHTML = `<span class="lab">${s.label}</span>` +
+      `<input type="range" id="${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">` +
+      `<output></output>` +
+      `<input type="number" class="mx" step="any" value="${s.max}" title="Max of the range">` +
+      `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox" checked><i>-1</i></label>`;
+    $('#sliders').append(row);
+    const [rng, mx, cb] = row.querySelectorAll('input'), out = row.querySelector('output');
+    const show = () => { out.textContent = P.on[s.id] ? fmt(rng.value, s.step) : '-1'; };
+    rng.addEventListener('pointerdown', () => { hold.drag = true; hold.poke(); });
+    rng.addEventListener('input', () => { P[s.id] = parseFloat(rng.value); show(); hold.poke(); });
+    mx.addEventListener('change', () => {
+      let m = parseFloat(mx.value);
+      if (!(m > parseFloat(rng.min))) m = parseFloat(rng.max);
+      mx.value = m; rng.max = m;
+      if (parseFloat(rng.value) > m) rng.value = m;
+      P[s.id] = parseFloat(rng.value); show(); hold.poke();
+    });
+    cb.addEventListener('change', () => {
+      P.on[s.id] = cb.checked; rng.disabled = !cb.checked; row.classList.toggle('off', !cb.checked);
+      show(); hold.poke();
+    });
+    rows[s.id] = { rng, mx, cb };
+    show();
+  }
+  return (id) => (P.on[id] ? P[id] : -1);              // val(id): the value, or -1 when off
+}
+
+// ---------------------------------------------------------------- Settings button
+const UIKEY = 'genArt002.ui';
+const setOpen = (open) => {
+  $('#settings').hidden = !open; $('#setbtn').classList.toggle('on', open);
+  try { localStorage.setItem(UIKEY, open ? '1' : '0'); } catch {}
+};
+$('#setbtn').onclick = () => setOpen($('#settings').hidden);
+$('#setclose').onclick = () => setOpen(false);
+setOpen((() => { try { return localStorage.getItem(UIKEY) !== '0'; } catch { return true; } })());
+
+// ---------------------------------------------------------------- video source
+export const vid = $('#vid');
+export const cam = { stream: null, mirror: true, onStart: () => {}, onLoad: () => {} };
+export async function loadVideo(url) {
+  stopCamera();
+  vid.src = url; vid.muted = true; vid.loop = true;
+  await new Promise((res, rej) => { vid.onloadeddata = res; vid.onerror = () => rej(new Error('video failed to load')); });
+  await vid.play().catch(() => {});
+  cam.onLoad();
+}
+export function stopCamera() {
+  if (!cam.stream) return;
+  cam.stream.getTracks().forEach((t) => t.stop()); cam.stream = null;
+  vid.srcObject = null; vid.style.transform = ''; $('#cam').classList.remove('on');
+}
+export async function startCamera() {
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: false });
+  } catch (e) {
+    cam.stream = null;
+    msg('Camera is not available here (' + (e.name || e.message) + '). Use "Load video" to pick a file.');
+    return false;
+  }
+  msg(''); vid.removeAttribute('src'); vid.srcObject = cam.stream; vid.loop = false;
+  await vid.play().catch(() => {});
+  $('#cam').classList.add('on'); cam.onStart();
+  return true;
+}
+$('#cam').onclick = async () => {
+  if (cam.stream) { stopCamera(); vid.removeAttribute('src'); msg('Camera off. Turn it on again or use "Load video".'); return; }
+  await startCamera();
+};
+$('#mirror').onchange = (e) => { cam.mirror = e.target.checked; };
+$('#pick').onclick = () => $('#file').click();
+$('#file').onchange = (e) => { const f = e.target.files[0]; if (f) loadVideo(URL.createObjectURL(f)); };
+const drop = $('#drop');
+addEventListener('dragover', (e) => { e.preventDefault(); drop.style.display = 'flex'; });
+addEventListener('dragleave', (e) => { if (!e.relatedTarget) drop.style.display = 'none'; });
+addEventListener('drop', (e) => { e.preventDefault(); drop.style.display = 'none'; const f = e.dataTransfer.files[0]; if (f) loadVideo(URL.createObjectURL(f)); });
+
+// draw the video cover-cropped into a w x h 2D context, mirrored for the camera; returns the crop
+export function drawCover(c, w, h) {
+  const vw = vid.videoWidth, vh = vid.videoHeight, ar = w / h;
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+  if (vw / vh > ar) { sw = vh * ar; sx = (vw - sw) / 2; } else { sh = vw / ar; sy = (vh - sh) / 2; }
+  const mir = !!(cam.stream && cam.mirror);
+  c.save();
+  if (mir) { c.translate(w, 0); c.scale(-1, 1); }
+  c.drawImage(vid, sx, sy, sw, sh, 0, 0, w, h);
+  c.restore();
+  return { sx, sy, sw, sh, vw, vh, mir };
+}
+
+// ---------------------------------------------------------------- defaults (per version)
+// Saves every slider (value, max, on) and every [data-save] control of this version.
+export function initDefaults() {
+  const STORE = 'genArt002.defaults.' + VIEW;
+  const saveEls = () => [...document.querySelectorAll('[data-save]')].filter((el) => !el.closest('[hidden]'));
+  const snapshot = () => {
+    const o = { s: {}, c: {} };
+    for (const [id, r] of Object.entries(rows)) o.s[id] = { v: r.rng.value, max: r.rng.max, on: r.cb.checked };
+    for (const el of saveEls()) o.c[el.id] = el.type === 'checkbox' ? el.checked : el.value;
+    return o;
+  };
+  const apply = (o) => {
+    for (const [id, x] of Object.entries(o.s || {})) {
+      const r = rows[id]; if (!r) continue;
+      r.rng.max = x.max; r.mx.value = x.max; r.rng.value = x.v; r.rng.dispatchEvent(new Event('input'));
+      r.cb.checked = x.on; r.cb.dispatchEvent(new Event('change'));
+    }
+    for (const [id, v] of Object.entries(o.c || {})) {
+      const el = document.getElementById(id); if (!el) continue;
+      if (el.type === 'checkbox') el.checked = v; else el.value = v;
+      el.dispatchEvent(new Event(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input'));
+    }
+  };
+  try { const sv = JSON.parse(localStorage.getItem(STORE) || 'null'); if (sv) apply(sv); } catch {}
+  $('#setdef').onclick = () => {
+    try { localStorage.setItem(STORE, JSON.stringify(snapshot())); $('#setdef').textContent = 'Saved as default'; }
+    catch { $('#setdef').textContent = 'Could not save'; }
+    setTimeout(() => { $('#setdef').textContent = 'Set default'; }, 1600);
+  };
+  $('#resetdef').onclick = () => { try { localStorage.removeItem(STORE); } catch {} location.reload(); };
+}
+
+// ---------------------------------------------------------------- version check
+export function versionCheck() {
+  const mine = document.querySelector('meta[name=build]')?.content || '';
+  const check = async () => {
+    try {
+      const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+      if (v.build !== mine) { $('#newver').hidden = false; $('#newver').onclick = () => location.reload(); }
+    } catch {}
+  };
+  check(); setInterval(check, 30000);
+}
+
+export const noCam = new URLSearchParams(location.search).has('nocam');

@@ -1,12 +1,11 @@
 // Generative Art v002: V1 LINE only (WebGPU). Clean copy of the V1 engine from v001.
 // Video -> CLAHE darkness -> spacing field R -> differential growth -> draw.
+import { $, msg, hex, hold, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
 const SW = 540, SH = 960, OW = 1080, OH = 1920, SCALE = 2, MAXN = 262144, MARGIN = 6;
 const CS = 4.16, GW = Math.floor(SW / CS) + 1, GH = Math.floor(SH / CS) + 1;
 const NGW = 70, NGH = 121;                 // low-res noise grid (8 sim px per cell)
 const WARM_STEPS = 150;
 const FPS = 30;
-const $ = (s) => document.querySelector(s);
-const msg = (m) => { $('#msg').textContent = m; };
 
 if (!navigator.gpu) { msg('WebGPU is not available in this browser.'); throw new Error('no webgpu'); }
 const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
@@ -552,9 +551,9 @@ const SLIDERS = [
   { id: 'noise', label: 'Noise', min: 0, max: 0.4, step: 0.01, val: 0.22, off: 'no noise wobble' },
   { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 6, off: 'line frozen' },
 ];
-const P = { key: false, mirror: true, subject: 1, fg: [210, 50, 25], bgc: [242, 240, 238], on: {} };
-for (const s of SLIDERS) { P[s.id] = s.val; P.on[s.id] = true; }
-const val = (id) => (P.on[id] ? P[id] : -1);                 // what the slider sends: its value, or -1 when off
+const P = { key: false, subject: 1, fg: [210, 50, 25], bgc: [242, 240, 238] };
+const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
+
 
 // values the engine actually uses, with the -1 (off) rules applied
 function eff() {
@@ -636,8 +635,7 @@ function resetSim() {
 }
 
 // ---------------------------------------------------------------- video source
-const vid = $('#vid');
-let camStream = null;
+
 const cv2 = document.createElement('canvas'); cv2.width = SW; cv2.height = SH;
 const c2 = cv2.getContext('2d');
 c2.imageSmoothingQuality = 'high';
@@ -670,15 +668,8 @@ function modelFrame(longSide, mult = 8) {
   mctx.drawImage(vid, 0, 0, w, h);
 }
 function uploadFrame() {
-  const vw = vid.videoWidth, vh = vid.videoHeight, ar = SW / SH;
-  let sx = 0, sy = 0, sw = vw, sh = vh;
-  if (vw / vh > ar) { sw = vh * ar; sx = (vw - sw) / 2; } else { sh = vw / ar; sy = (vh - sh) / 2; }
-  c2.save();
-  const mir = !!(camStream && P.mirror);
-  if (mir) { c2.translate(SW, 0); c2.scale(-1, 1); }
-  c2.drawImage(vid, sx, sy, sw, sh, 0, 0, SW, SH);
+  const { sx, sy, sw, sh, vw, vh, mir } = drawCover(c2, SW, SH);
   const dw = vw * SW / sw, dh = vh * SH / sh, dx = -sx * SW / sw, dy = -sy * SH / sh;
-  c2.restore();
   vmap.au = (mir ? -1 : 1) / dw; vmap.bu = mir ? (SW - dx) / dw : -dx / dw; vmap.av = 1 / dh; vmap.bv = -dy / dh;
   device.queue.copyExternalImageToTexture({ source: cv2 }, { texture: srcTex }, [SW, SH]);
   segment();
@@ -854,18 +845,6 @@ function renderStats() {
 }
 setInterval(renderStats, 250);
 
-// ---------------------------------------------------------------- slider hold
-// While a slider moves the sim is held (no video upload, no growth) so the slider stays smooth.
-// Only the cheap redraw runs, so stroke and colour changes still show live.
-// The sim resumes HOLD_MS after the last move, with everything awake so the line settles to the new values.
-const HOLD_MS = 250;
-const hold = {
-  drag: false, until: 0, redraw: false,
-  active() { return this.drag || performance.now() < this.until; },
-  poke() { this.until = performance.now() + HOLD_MS; this.redraw = true; },
-};
-addEventListener('pointerup', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
-addEventListener('pointercancel', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
 
 // ---------------------------------------------------------------- loop driver
 let lastMedia = -1, wasHeld = false;
@@ -886,132 +865,21 @@ function loop() {
   if (sim.pending >= 3) { sim.dropped++; return; }
   tick();
 }
-async function loadVideo(url) {
-  stopCamera();
-  vid.src = url; vid.muted = true; vid.loop = true;
-  await new Promise((res, rej) => { vid.onloadeddata = res; vid.onerror = () => rej(new Error('video failed to load')); });
-  await vid.play().catch(() => {});
-}
-function stopCamera() {
-  if (!camStream) return;
-  camStream.getTracks().forEach((t) => t.stop()); camStream = null;
-  vid.srcObject = null; vid.style.transform = ''; $('#cam').classList.remove('on');
-}
-async function startCamera() {
-  try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }, audio: false });
-  } catch (e) {
-    camStream = null;
-    msg('Camera is not available here (' + (e.name || e.message) + '). Use "Load video" to pick a file.');
-    return false;
-  }
-  msg(''); vid.removeAttribute('src'); vid.srcObject = camStream; vid.loop = false;
-  await vid.play().catch(() => {});
-  vid.style.transform = P.mirror ? 'scaleX(-1)' : '';
-  $('#cam').classList.add('on'); lastMedia = -1; resetSim();
-  return true;
-}
-async function useCamera() {
-  if (camStream) { stopCamera(); vid.removeAttribute('src'); msg('Camera off. Turn it on again or use "Load video".'); return; }
-  await startCamera();
-}
 
 // ---------------------------------------------------------------- UI
-const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-const fmt = (v, step) => { const d = (String(step).split('.')[1] || '').length; return Number(v).toFixed(d); };
-const rows = {};
-for (const s of SLIDERS) {
-  const row = document.createElement('div'); row.className = 'sl';
-  row.innerHTML = `<span class="lab">${s.label}</span>` +
-    `<input type="range" id="${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">` +
-    `<output></output>` +
-    `<input type="number" class="mx" step="any" value="${s.max}" title="Max of the range">` +
-    `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox" checked><i>-1</i></label>`;
-  $('#sliders').append(row);
-  const [rng, mx, cb] = row.querySelectorAll('input'), out = row.querySelector('output');
-  const show = () => { out.textContent = P.on[s.id] ? fmt(rng.value, s.step) : '-1'; };
-  rng.addEventListener('pointerdown', () => { hold.drag = true; hold.poke(); });
-  rng.addEventListener('input', () => { P[s.id] = parseFloat(rng.value); show(); hold.poke(); });
-  mx.addEventListener('change', () => {
-    let m = parseFloat(mx.value);
-    if (!(m > parseFloat(rng.min))) m = parseFloat(rng.max);
-    mx.value = m; rng.max = m;
-    if (parseFloat(rng.value) > m) rng.value = m;
-    P[s.id] = parseFloat(rng.value); show(); hold.poke();
-  });
-  cb.addEventListener('change', () => {
-    P.on[s.id] = cb.checked; rng.disabled = !cb.checked; row.classList.toggle('off', !cb.checked);
-    show(); hold.poke();
-  });
-  rows[s.id] = { rng, mx, cb, show };
-  show();
-}
 $('#fg').oninput = (e) => { P.fg = hex(e.target.value); hold.poke(); };
 $('#bg').oninput = (e) => { P.bgc = hex(e.target.value); hold.poke(); };
 $('#subject').onchange = async (e) => { P.subject = parseInt(e.target.value); if (P.subject) await loadSegmenter(); sim.boost = 8; };
-$('#mirror').onchange = (e) => { P.mirror = e.target.checked; if (camStream) vid.style.transform = P.mirror ? 'scaleX(-1)' : ''; };
 $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
-$('#cam').onclick = useCamera;
 $('#restart').onclick = () => { resetSim(); };
-$('#pick').onclick = () => $('#file').click();
-$('#file').onchange = (e) => { const f = e.target.files[0]; if (f) loadVideo(URL.createObjectURL(f)).then(resetSim); };
-const drop = $('#drop');
-addEventListener('dragover', (e) => { e.preventDefault(); drop.style.display = 'flex'; });
-addEventListener('dragleave', (e) => { if (!e.relatedTarget) drop.style.display = 'none'; });
-addEventListener('drop', (e) => { e.preventDefault(); drop.style.display = 'none'; const f = e.dataTransfer.files[0]; if (f) loadVideo(URL.createObjectURL(f)).then(resetSim); });
-
-// Settings button: opens and closes the slider panel, remembers its state
-const UIKEY = 'genArt002.ui';
-const setOpen = (open) => {
-  $('#settings').hidden = !open; $('#setbtn').classList.toggle('on', open);
-  try { localStorage.setItem(UIKEY, open ? '1' : '0'); } catch {}
-};
-$('#setbtn').onclick = () => setOpen($('#settings').hidden);
-$('#setclose').onclick = () => setOpen(false);
-setOpen((() => { try { return localStorage.getItem(UIKEY) !== '0'; } catch { return true; } })());
-
-// ---------------------------------------------------------------- defaults (Set default / Reset defaults)
-const STORE = 'genArt002.defaults.v1';
-function snapshot() {
-  const o = { s: {}, fg: $('#fg').value, bg: $('#bg').value, subject: $('#subject').value, mirror: $('#mirror').checked, key: $('#key').checked };
-  for (const s of SLIDERS) { const r = rows[s.id]; o.s[s.id] = { v: r.rng.value, max: r.rng.max, on: r.cb.checked }; }
-  return o;
-}
-function apply(o) {
-  for (const [id, x] of Object.entries(o.s || {})) {
-    const r = rows[id]; if (!r) continue;
-    r.rng.max = x.max; r.mx.value = x.max; r.rng.value = x.v; P[id] = parseFloat(r.rng.value);
-    r.cb.checked = x.on; r.cb.dispatchEvent(new Event('change'));
-  }
-  if (o.fg) { $('#fg').value = o.fg; P.fg = hex(o.fg); }
-  if (o.bg) { $('#bg').value = o.bg; P.bgc = hex(o.bg); }
-  if (o.subject !== undefined) { $('#subject').value = o.subject; P.subject = parseInt(o.subject); }
-  if (o.mirror !== undefined) { $('#mirror').checked = o.mirror; P.mirror = o.mirror; }
-  if (o.key !== undefined) { $('#key').checked = o.key; P.key = o.key; }
-}
-try { const sv = JSON.parse(localStorage.getItem(STORE) || 'null'); if (sv) apply(sv); } catch {}
-$('#setdef').onclick = () => {
-  try { localStorage.setItem(STORE, JSON.stringify(snapshot())); $('#setdef').textContent = 'Saved as default'; }
-  catch { $('#setdef').textContent = 'Could not save'; }
-  setTimeout(() => { $('#setdef').textContent = 'Set default'; }, 1600);
-};
-$('#resetdef').onclick = () => { try { localStorage.removeItem(STORE); } catch {} location.reload(); };
+cam.onStart = () => { lastMedia = -1; resetSim(); };
+cam.onLoad = () => { resetSim(); };
+initDefaults();
 
 // ---------------------------------------------------------------- go
 window.__state = { sim, P, hold, eff };
 resetSim();
 requestAnimationFrame(loop);
 if (P.subject) loadSegmenter();
-if (!new URLSearchParams(location.search).has('nocam')) await startCamera();
-
-// ---------------------------------------------------------------- version check
-{
-  const mine = document.querySelector('meta[name=build]')?.content || '';
-  const check = async () => {
-    try {
-      const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
-      if (v.build !== mine) { $('#newver').hidden = false; $('#newver').onclick = () => location.reload(); }
-    } catch {}
-  };
-  check(); setInterval(check, 30000);
-}
+versionCheck();
+if (!noCam) await startCamera();

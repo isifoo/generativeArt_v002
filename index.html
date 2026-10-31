@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261030120000">
+<meta name="build" content="20261031090000">
 <style>
   :root { --bg:#141414; --panel:#1c1c1c; --line:#2e2e2e; --fg:#e8e6e3; --dim:#8a8784; --accent:#d23219; }
   * { box-sizing:border-box; }
@@ -59,8 +59,8 @@
   <div id="newver" hidden style="position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9;background:#d23219;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer">New version available. Click to reload.</div>
   <div id="side">
     <div>
-      <h2>Generative Art v002 <span id="ver" style="text-transform:none;letter-spacing:0;font-weight:400">v1.00 (2026-10-30)</span></h2>
-      <div class="row"><button class="on" type="button">V1 Line</button></div>
+      <h2>Generative Art v002 <span id="ver" style="text-transform:none;letter-spacing:0;font-weight:400">v1.10 (2026-10-31)</span></h2>
+      <div class="row" id="versions"></div>
     </div>
     <div id="msg"></div>
     <div>
@@ -69,14 +69,14 @@
         <button id="setbtn" type="button">Settings</button>
         <button id="cam" type="button">Camera</button>
         <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
-        <button id="restart" type="button">Restart line</button>
+        <button id="restart" type="button">Restart</button>
       </div>
     </div>
     <div>
       <h2>Input</h2>
-      <div class="ctl"><span>Subject</span><select id="subject"><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
-      <label class="note"><input type="checkbox" id="mirror" checked> mirror camera</label><br>
-      <label class="note"><input type="checkbox" id="key"> key out red (red background only)</label>
+      <div class="ctl" data-views="line"><span>Subject</span><select id="subject" data-save><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
+      <label class="note"><input type="checkbox" id="mirror" checked data-save> mirror camera</label><br>
+      <label class="note" data-views="line"><input type="checkbox" id="key" data-save> key out red (red background only)</label>
     </div>
     <div>
       <h2>Render time (measured on this GPU)</h2>
@@ -87,16 +87,22 @@
 </div>
 
 <div id="settings" hidden>
-  <div class="head"><h2 style="margin:0">V1 Line settings</h2><button id="setclose" type="button" title="Close">x</button></div>
-  <div class="ctl"><span>Line / paper</span><span><input type="color" id="fg" value="#d23219"> <input type="color" id="bg" value="#f2f0ee"></span></div>
+  <div class="head"><h2 id="setHead" style="margin:0">Settings</h2><button id="setclose" type="button" title="Close">x</button></div>
+  <div class="ctl" data-views="line"><span>Line / paper</span><span><input type="color" id="fg" value="#d23219" data-save> <input type="color" id="bg" value="#f2f0ee" data-save></span></div>
+  <div class="ctl" data-views="ishihara"><span>Palette</span><select id="ihpal" data-save><option value="classic" selected>Classic (orange on green)</option><option value="pastel">Pastel (pink on blue)</option><option value="bw">Black / white</option><option value="red">Red / paper</option></select></div>
+  <div class="ctl" data-views="ishihara"><span>Figure</span><label class="note"><input type="checkbox" id="ihinv" data-save> figure is the lighter side</label></div>
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
-  <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). The sim pauses while you drag and catches up when you let go.</p>
+  <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change.</p>
   <div class="row">
     <button id="setdef" type="button">Set default</button>
     <button id="resetdef" type="button">Reset defaults</button>
   </div>
 </div>
-<script type="module" src="line.js?b=20261030120000"></script>
+<script type="module">
+  const b = document.querySelector('meta[name=build]').content;
+  const v = new URLSearchParams(location.search).get('view');
+  import((v === 'ishihara' ? './ishihara.js' : './line.js') + '?b=' + b);
+</script>
 </body>
 </html>
