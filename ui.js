@@ -33,12 +33,13 @@ addEventListener('pointerup', () => { if (hold.drag) { hold.drag = false; hold.p
 addEventListener('pointercancel', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
 
 // ---------------------------------------------------------------- slider rows
-// list entries: { id, label, min, max, step, val, off }. Off sends -1 (P.on[id] = false).
+// list entries: { id, label, min, max, step, val, off }, or { head } for a group heading. Off sends -1 (P.on[id] = false).
 const fmt = (v, step) => { const d = (String(step).split('.')[1] || '').length; return Number(v).toFixed(d); };
 export const rows = {};
 export function buildSliders(list, P) {
   P.on = P.on || {};
   for (const s of list) {
+    if (s.head) { const h = document.createElement('h2'); h.className = 'grp'; h.textContent = s.head; $('#sliders').append(h); continue; }
     P[s.id] = s.val; P.on[s.id] = true;
     const row = document.createElement('div'); row.className = 'sl';
     row.innerHTML = `<span class="lab">${s.label}</span>` +
@@ -133,8 +134,8 @@ export function drawCover(c, w, h) {
 
 // ---------------------------------------------------------------- defaults (per version)
 // Saves every slider (value, max, on) and every [data-save] control of this version.
-export function initDefaults() {
-  const STORE = 'genArt002.defaults.' + VIEW;
+export function initDefaults(rev = '') {
+  const STORE = 'genArt002.defaults.' + VIEW + rev;
   const saveEls = () => [...document.querySelectorAll('[data-save]')].filter((el) => !el.closest('[hidden]'));
   const snapshot = () => {
     const o = { s: {}, c: {} };

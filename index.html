@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261031150000">
+<meta name="build" content="20261031170000">
 <style>
   :root { --bg:#141414; --panel:#1c1c1c; --line:#2e2e2e; --fg:#e8e6e3; --dim:#8a8784; --accent:#d23219; }
   * { box-sizing:border-box; }
@@ -38,6 +38,7 @@
   .cols { color:var(--dim); font-size:11px; margin-bottom:2px; }
   .cols span:nth-child(3), .cols span:nth-child(4), .cols span:nth-child(5) { text-align:center; }
   .sl { margin:5px 0; }
+  #sliders h2.grp { margin:14px 0 2px; color:#c9c6c1; border-top:1px solid var(--line); padding-top:10px; }
   .sl output { text-align:right; color:var(--dim); font-variant-numeric:tabular-nums; }
   .sl input[type=range] { width:100%; accent-color:var(--accent); touch-action:none; }
   .sl .mx { width:100%; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:3px; padding:2px 4px; font:inherit; }
@@ -63,7 +64,7 @@
     <div class="row" id="versions"></div>
     <div class="row"><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
-    <div class="note" id="ver">Generative Art v002 · v1.20 (2026-10-31)</div>
+    <div class="note" id="ver">Generative Art v002 · v1.30 (2026-10-31)</div>
   </div>
 </div>
 
@@ -78,9 +79,9 @@
   <div class="ctl" data-views="line"><span>Subject</span><select id="subject" data-save><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
   <div class="ctl" data-views="line"><span>Red key</span><label class="note"><input type="checkbox" id="key" data-save> key out red (red background only)</label></div>
   <div class="ctl" data-views="line"><span>Line / paper</span><span><input type="color" id="fg" value="#d23219" data-save> <input type="color" id="bg" value="#f2f0ee" data-save></span></div>
-  <div class="ctl" data-views="ishihara"><span>Palette</span><select id="ihpal" data-save><option value="classic" selected>Classic (red, orange, green)</option><option value="pastel">Pastel (plum, pink, blue)</option><option value="bw">Black / white</option><option value="red">Red / paper</option></select></div>
+  <div class="ctl" data-views="ishihara"><span>Palette</span><select id="ihpal" data-save><option value="classic" selected>Classic (red-orange on green)</option><option value="pastel">Pastel (pink on blue)</option><option value="blueorange">Orange on blue</option><option value="bw">Black / white</option><option value="red">Red, value only</option></select></div>
   <div class="ctl" data-views="ishihara"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (bright video = dark circles)</label></div>
-  <div class="ctl" data-views="ishihara"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the tone map the circles follow</label></div>
+  <div class="ctl" data-views="ishihara"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
   <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change.</p>
