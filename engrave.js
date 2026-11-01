@@ -57,8 +57,12 @@ const SLIDERS = [
   { id: 'enr', label: 'Ink roughness', min: 0, max: 1, step: 0.01, val: 0.73, off: 'clean edges' },
   { id: 'env', label: 'Line weight variety', min: 0, max: 0.6, step: 0.01, val: 0.08, off: 'every line the same' },
 ];
+// OVERLAY mode: Dollar 2 can run this engraving as a layer on top of its lines (window.__dollarOverlay = { canvas, dm }).
+// Then it draws into that canvas, shares Dollar 2's video and depth model, and leaves camera, defaults and stats to Dollar 2.
+const OV = window.__dollarOverlay || null;
+const SL = OV ? SLIDERS.filter((s) => !['dpq', 'dps'].includes(s.id)).map((s) => (s.head ? { head: 'Overlay Dollar: ' + s.head } : s)) : SLIDERS;
 const P = {};
-const val = buildSliders(SLIDERS, P);
+const val = buildSliders(SL, P);
 const num = (id, def) => (val(id) < 0 && P.on[id] === false ? def : P[id]);   // value, or the default when its box is off
 const offv = (id) => P.on[id] === false;
 
@@ -101,8 +105,9 @@ function updateTone() {
 // ---------------------------------------------------------------- depth (shared model)
 let uploadDepth = false;
 // one model only (Depth Anything V2 Small): the second model is not used, nor downloaded, in this style
-const DM = createDepthModel((id, def) => (P.on[id] === undefined ? (id === 'dpw' ? 0 : def) : val(id)), () => { uploadDepth = true; dirField(); });
+const DM = OV ? OV.dm : createDepthModel((id, def) => (P.on[id] === undefined ? (id === 'dpw' ? 0 : def) : val(id)), () => {});
 const M = DM.M;
+let seenMap = -1;                                             // a new depth map (from our model or the shared one): direction field + upload
 
 // ---------------------------------------------------------------- direction field from depth (CPU, at the depth map's size)
 // structure tensor of the depth: J = blur(grad d grad d^T); the depth contours run across the main gradient.
@@ -137,7 +142,7 @@ function dirField() {
 }
 
 // ---------------------------------------------------------------- the engraving shader (WebGL2)
-const canvas = $('#cv'); canvas.width = OW; canvas.height = OH;
+const canvas = OV ? OV.canvas : $('#cv'); canvas.width = OW; canvas.height = OH;
 const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true });
 const VS = `#version 300 es
 in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }`;
@@ -278,6 +283,7 @@ function render() {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tTone); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tFlow); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, flow); uploadTone = false;
   }
+  if (M.have && M.tUp !== seenMap) { seenMap = M.tUp; dirField(); uploadDepth = true; }
   if (uploadDepth && M.have) {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tDep); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.out);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tPrev); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.prevOut);
@@ -313,7 +319,7 @@ function renderStats() {
     row('depth model time', M.ms.toFixed(1) + ' ms') + row('depth maps per second', M.fps.toFixed(1));
   $('#budget').style.width = Math.min(100, (toneMs + M.ms / 4) / 33.3 * 100) + '%';
 }
-setInterval(renderStats, 250);
+if (!OV) setInterval(renderStats, 250);
 
 // ---------------------------------------------------------------- loop
 let lastMedia = -1;
@@ -322,19 +328,20 @@ function loop() {
   if (vid.readyState < 2 || !vid.videoWidth) return;
   const fresh = vid.currentTime !== lastMedia; lastMedia = vid.currentTime;
   if (fresh || dirty) updateTone();
-  if (M.ready && !M.busy && (fresh || !M.have)) DM.infer();
-  if (toneReady) render();
+  if (!OV && M.ready && !M.busy && (fresh || !M.have)) DM.infer();
+  if (toneReady && (!OV || OV.on())) render();
 }
 
 // ---------------------------------------------------------------- UI
 $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
-$('#restart').onclick = () => { M.sm = null; M.have = false; };
-cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83); defaults = Gerry's settings (v1.84); directions from depth (v1.85)
+if (!OV) {
+  $('#restart').onclick = () => { M.sm = null; M.have = false; };
+  cam.onStart = () => { lastMedia = -1; };
+  initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83); defaults = Gerry's settings (v1.84); directions from depth (v1.85)
 
-window.__state = { M, P, val, tone };
-DM.load();
+  window.__state = { M, P, val, tone };
+  DM.load();
+}
 requestAnimationFrame(loop);
-versionCheck();
-if (!noCam) await startCamera();
+if (!OV) { versionCheck(); if (!noCam) await startCamera(); }

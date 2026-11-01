@@ -39,6 +39,8 @@ const SLIDERS = [
   { id: 'e2md', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.22, off: '0.22' },
   { id: 'e2mi', label: 'Minimum ink', min: 0, max: 0.3, step: 0.01, val: 0.04, off: 'bare paper in the lights' },
   { id: 'e2pw', label: 'Paper white', min: 0.5, max: 1, step: 0.005, val: 0.95, off: 'no bare paper' },
+  { head: 'Overlay: Dollar (the engraving shader) on top' },
+  { id: 'e2oo', label: 'Overlay strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
   { head: 'Depth' },
   { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
   { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' },
@@ -357,7 +359,17 @@ $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#e2pal').onchange = (e) => { P.pal = e.target.checked; };
 $('#restart').onclick = () => { M.sm = null; M.have = false; lastBuild = -1e9; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r2');                                       // r2: near-straight lines by default (v1.92)
+// OVERLAY: Dollar's engraving shader as a layer on top (multiply: the paper stays white, the ink of both shows).
+// It shares this video and this depth model; its sliders come after ours, under "Overlay Dollar" headings.
+const ovCanvas = document.createElement('canvas');
+ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none';
+canvas.after(ovCanvas);
+const ovOn = () => !offv('e2oo') && P.e2oo > 0;
+const ovStyle = () => { ovCanvas.style.opacity = ovOn() ? P.e2oo : 0; };
+window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn };
+await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
+ovStyle(); $('#e2oo').addEventListener('input', ovStyle); $('#e2oo').parentElement.querySelector('.onoff input').addEventListener('change', ovStyle);
+initDefaults('.r3');                                       // r3: Dollar overlay sliders added (v1.93)                                       // r2: near-straight lines by default (v1.92)
 
 window.__state = { M, P, val, tone, rebuild, get buildMs() { return buildMs; }, get nLines() { return nLines; } };
 DM.load();
