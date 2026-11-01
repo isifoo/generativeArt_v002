@@ -47,7 +47,7 @@ const M = { ort: null, sess: [], ep: '', ready: false, loading: false, busy: fal
 const ic = document.createElement('canvas'), ix = ic.getContext('2d', { willReadFrequently: true });
 async function loadModel() {
   if (M.ready || M.loading) return;
-  M.loading = true; msg('Loading the depth model (Depth Anything V2 Small, 50 MB, first time only)...');
+  M.loading = true; msg('Loading the depth models (Depth Anything V2 + V1 Small, 2 x 50 MB, first time only)...');
   try {
     M.ort = await import('./vendor/ort/ort.webgpu.min.mjs');
     M.ort.env.wasm.wasmPaths = new URL('./vendor/ort/', location.href).href;
