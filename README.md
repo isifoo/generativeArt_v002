@@ -1,6 +1,6 @@
 # Generative Art v002
 
-Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look) and Depth Dots (the Ishihara packing driven by the depth map).
+Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), Depth Dots (the Ishihara packing driven by the depth map) and Depth 3D (the depth map as a lit 3D surface, three.js).
 
 - Live: https://isifoo.github.io/generativeArt_v002/
 - Settings button opens the slider panel. Every slider has a max field and a -1 on/off box.
@@ -15,3 +15,4 @@ Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishi
 - Owner PIN: Set default / Reset defaults / Copy settings are hidden. Click the version line under the buttons and type the PIN (remembered on that device; click the line again to lock). Saved defaults live in that browser. `site-defaults.json` (optional, same shape as Copy settings) gives every visitor the defaults.
 - Depth model code is shared: `depthmodel.js` (`createDepthModel(opt, onMap)`), used by Depth and Depth Dots.
 - Depth Dots: `?view=depthdots`, runs in `ishihara.js` with the depth map as the field. Edit > Depth drives: Size (one colour, the dark colour; near = big) or Colour (palette by depth; random sizes). No wiggle; circles settle 1.5 s after a change and then stay still (no repacking churn, no new filler dots).
+- Depth 3D: `?view=depth3d` (`depth3d.js`, three.js 0.160 from jsdelivr via the importmap in `index.html`). A grid mesh pushed by depth (blended between depth maps, edge-keeping surface smoothing), key light + hemisphere fill + RoomEnvironment reflections, ACES tone mapping. Looks: video on the surface, white clay, palette by depth. Cut edges (off by default) removes cells across big depth jumps. Camera: turn, tilt, zoom, sway; drag to turn, double click to reset.
