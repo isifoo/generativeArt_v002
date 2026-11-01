@@ -30,12 +30,13 @@ const SLIDERS = [
   { id: 'ena', label: 'Angle deg', min: -90, max: 90, step: 0.5, val: 40, off: '0' },
   { id: 'enx', label: 'Cross angle deg', min: 20, max: 90, step: 0.5, val: 62, off: 'no cross lines' },
   { id: 'enw', label: 'Line weight', min: 0.3, max: 2, step: 0.01, val: 1, off: '1' },
-  { id: 'en3', label: 'Third lines from', min: 0.3, max: 1, step: 0.01, val: 0.82, off: 'never' },
+  { id: 'en2', label: 'Cross lines from', min: 0.1, max: 0.95, step: 0.01, val: 0.6, off: 'never: one direction only' },
+  { id: 'en3', label: 'Third lines from', min: 0.3, max: 1, step: 0.01, val: 0.9, off: 'never' },
   { head: 'Curves and density (driven by contrast)' },
-  { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 2.2, off: 'no bending by tone' },
+  { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 1.4, off: 'no bending by tone' },
   { id: 'enfr', label: 'Flow smoothness px', min: 4, max: 160, step: 1, val: 48, off: '48' },
-  { id: 'endn', label: 'Denser in the darks', min: 0, max: 1.5, step: 0.01, val: 0.35, off: 'same spacing everywhere' },
-  { head: 'Dashes (light skin) to lines (darks)' },
+  { id: 'endn', label: 'Denser in the darks', min: 0, max: 1.5, step: 0.01, val: 0.25, off: 'same spacing everywhere' },
+  { head: 'Dashes (optional: the light skin as short dashes)' },
   { id: 'endw', label: 'Mark thickness', min: 0.08, max: 0.7, step: 0.01, val: 0.24, off: 'hairlines: tone sets the width only' },
   { id: 'enmd', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
   { id: 'entp', label: 'Dash taper', min: 0, max: 1, step: 0.01, val: 0.85, off: 'square ends' },
@@ -57,6 +58,8 @@ const SLIDERS = [
 ];
 const P = {};
 const val = buildSliders(SLIDERS, P);
+// continuous lines by default (lines, thicker lines, then crossing lines): the dash option starts off
+document.querySelector('#endw').parentElement.querySelector('.onoff input').click();
 const num = (id, def) => (val(id) < 0 && P.on[id] === false ? def : P[id]);   // value, or the default when its box is off
 const offv = (id) => P.on[id] === false;
 
@@ -112,7 +115,7 @@ in vec2 uv; out vec4 o;
 uniform sampler2D toneT, flowT, depT, depPrevT;
 uniform float hasDepth, bt;
 uniform vec2 res;
-uniform float sp, angA, angX, l3, weight;                // lines
+uniform float sp, angA, angX, l3, weight, xFrom;         // lines; xFrom: darkness where the cross lines start
 uniform float flowAmt, dens;                             // curves and density by contrast
 uniform float dw, minDash, taper;                        // dashes: mark thickness, shortest dash, taper
 uniform float bend, subj, bgSp, bgAng, outline;          // depth
@@ -152,7 +155,7 @@ void main() {
   vec2 px = uv * res;
   float t = texture(toneT, uv).r;                         // tone: 0 dark .. 1 light
   float tf = texture(flowT, uv).r;                        // soft tone: the lines flow along it
-  float dk = mix(minInk, 1.0, pow(1.0 - t, 0.85)) * (1.0 - smoothstep(pwhite, min(1.0, pwhite + 0.03), t));
+  float dk = mix(minInk, 1.0, 1.0 - t) * (1.0 - smoothstep(pwhite, min(1.0, pwhite + 0.03), t));
   float d = depthAt(uv);
   float s = subj < 0.0 ? 1.0 : smoothstep(subj - 0.04, subj + 0.04, d);
   vec2 pw = px + (vec2(fbm(px / wobS), fbm(px / wobS + 17.3)) - 0.5) * wob * 2.0;
@@ -170,8 +173,10 @@ void main() {
 
   // the darkness is shared by the two crossing families; dashes join into lines at 'join'; the third family only in the darkest
   // the darkness is shared by the two crossing families (B a little lighter); the third family only in the darkest
-  // light skin: mostly one direction of dashes; the crossing direction joins in from the mid tones (as on the $100 cheek)
-  float fA = clamp(dk * weight * 0.56, 0.0, 1.0), fB = angX > 0.0 ? fA * 0.85 * smoothstep(0.12, 0.45, dk) : 0.0;
+  // the tone scale: lines, then thicker lines (one direction carries the ink alone), then for the darkest a second
+  // direction crosses them (from 'cross lines from'); the third direction only at the very darkest
+  float fA = clamp(dk * weight * 0.86, 0.0, 0.74);
+  float fB = angX > 0.0 && xFrom < 1.0 ? clamp((dk - xFrom) / max(1.0 - xFrom, 0.05), 0.0, 1.0) * 0.62 * weight : 0.0;
   float fC = l3 < 1.0 ? clamp((dk - l3) / max(1.0 - l3, 0.05), 0.0, 1.0) * 0.35 * weight : 0.0;
   float inkS = max(family(phiA, phiB, fA, pw, 1.0), family(phiB, phiA, fB, pw, 2.0));
   inkS = max(inkS, family(phiC, phiA + 0.5, fC, pw, 3.0));
@@ -203,7 +208,7 @@ const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 const U = {};
-for (const n of ['toneT', 'flowT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l3', 'weight', 'flowAmt', 'dens', 'dw', 'minDash', 'taper', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'wob', 'wobS', 'rough', 'vari', 'hair', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+for (const n of ['toneT', 'flowT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l3', 'weight', 'xFrom', 'flowAmt', 'dens', 'dw', 'minDash', 'taper', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'wob', 'wobS', 'rough', 'vari', 'hair', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
@@ -226,7 +231,7 @@ function render() {
   gl.uniform1f(U.bt, Math.min(1, (performance.now() - tDepth) / Math.max(60, M.interval)));
   gl.uniform2f(U.res, OW, OH);
   gl.uniform1f(U.sp, num('ensp', 13)); gl.uniform1f(U.angA, num('ena', 0) * D);
-  gl.uniform1f(U.angX, offv('enx') ? 0 : P.enx * D); gl.uniform1f(U.l3, offv('en3') ? 1 : P.en3); gl.uniform1f(U.weight, num('enw', 1));
+  gl.uniform1f(U.angX, offv('enx') ? 0 : P.enx * D); gl.uniform1f(U.l3, offv('en3') ? 1 : P.en3); gl.uniform1f(U.xFrom, offv('en2') ? 1 : P.en2); gl.uniform1f(U.weight, num('enw', 1));
   gl.uniform1f(U.flowAmt, offv('enft') ? 0 : P.enft); gl.uniform1f(U.dens, offv('endn') ? 0 : P.endn);
   gl.uniform1f(U.dw, offv('endw') ? 0.001 : P.endw); gl.uniform1f(U.minDash, num('enmd', 0.25)); gl.uniform1f(U.taper, offv('entp') ? 0 : P.entp);
   gl.uniform1f(U.bend, offv('enbd') ? 0 : P.enbd); gl.uniform1f(U.subj, offv('ensu') ? -1 : P.ensu);
@@ -266,7 +271,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#restart').onclick = () => { M.sm = null; M.have = false; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r2');                                       // r2: slider set rebuilt from the $100 measurements (v1.81)
+initDefaults('.r3');                                       // r3: lines -> thicker lines -> crossing lines (v1.82)
 
 window.__state = { M, P, val, tone };
 DM.load();
