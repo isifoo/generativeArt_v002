@@ -37,17 +37,27 @@ export const hexToCol = (hex) => { const rgb = fromHex(hex); if (!rgb) return nu
 
 // ---------------------------------------------------------------- harmony rules (angle offsets from the base colour)
 // For Monochromatic / Shades the angle stays and saturation / brightness spread instead.
+// Each rule also has an icon (dots at angles on a ring, 90 = up), drawn like the color.adobe.com buttons.
 export const RULES = {
-  analogous: { label: 'Analogous', off: [0, 30, -30] },
-  mono: { label: 'Monochromatic', off: [0, 0, 0], mono: true },
-  triad: { label: 'Triad', off: [0, 120, -120] },
-  complementary: { label: 'Complementary', off: [0, 180, 0], third: 'lighter' },
-  split: { label: 'Split complementary', off: [0, 150, -150] },
-  square: { label: 'Square', off: [0, 90, 180] },
-  compound: { label: 'Compound', off: [0, 30, 195] },
-  shades: { label: 'Shades', off: [0, 0, 0], shades: true },
-  custom: { label: 'Custom' },
+  custom: { label: 'Custom', icon: { dots: [[60, 6], [150, 9], [290, 8]] } },
+  analogous: { label: 'Analogous', off: [0, 30, -30], icon: { dots: [[90, 12], [125, 12], [55, 12]], spokes: true } },
+  complementary: { label: 'Complementary', off: [0, 180, 0], third: 'lighter', icon: { dots: [[90, 12], [270, 12]], line: true } },
+  split: { label: 'Split complementary', off: [0, 150, -150], icon: { dots: [[90, 12], [240, 12], [300, 12]], spokes: true } },
+  triad: { label: 'Triad', off: [0, 120, -120], icon: { dots: [[90, 12], [210, 12], [330, 12]], poly: true } },
+  square: { label: 'Square', off: [0, 90, 180], icon: { dots: [[45, 12], [135, 12], [225, 12], [315, 12]], poly: true } },
+  compound: { label: 'Compound', off: [0, 30, 195], icon: { dots: [[90, 12], [240, 12], [300, 12, 1]], spokes: true } },
+  shades: { label: 'Shades', off: [0, 0, 0], shades: true, icon: { dots: [[90, 12], [90, 6], [90, 0]], line: true } },
+  mono: { label: 'Monochromatic', off: [0, 0, 0], mono: true, icon: { dots: [[90, 12], [70, 6], [110, 6]] } },
 };
+function ruleIcon(ic) {
+  const P = ic.dots.map(([a, r]) => [18 + Math.cos(a * Math.PI / 180) * r, 18 - Math.sin(a * Math.PI / 180) * r]);
+  let g = '<circle cx="18" cy="18" r="12" fill="none" stroke="#d9d9d9" stroke-width="4"/>';
+  if (ic.spokes) g += P.map(([x, y]) => `<line x1="18" y1="18" x2="${x}" y2="${y}" stroke="#111" stroke-width="1.5"/>`).join('');
+  if (ic.line) g += `<line x1="${P[0][0]}" y1="${P[0][1]}" x2="${P[P.length - 1][0]}" y2="${P[P.length - 1][1]}" stroke="#111" stroke-width="1.5"/>`;
+  if (ic.poly) g += `<polygon points="${P.map((p) => p.join(',')).join(' ')}" fill="none" stroke="#111" stroke-width="1.5"/>`;
+  g += P.map(([x, y], k) => `<circle cx="${x}" cy="${y}" r="2.6" fill="${ic.dots[k][2] ? '#666' : '#111'}"/>`).join('');
+  return `<svg viewBox="0 0 36 36" width="30" height="30">${g}</svg>`;
+}
 function applyRule(st) {
   const R = RULES[st.rule]; if (!R || !R.off) return;
   const b = st.cols[st.base];
@@ -70,8 +80,9 @@ export function createWheel(root, state, onChange) {
   root.innerHTML = `
     <div class="cw-top">
       <span class="cw-n"><button type="button" data-n="2">2 colours</button><button type="button" data-n="3">3 colours</button></span>
-      <select class="cw-rule">${Object.entries(RULES).map(([k, r]) => `<option value="${k}">${r.label}</option>`).join('')}</select>
+      <span class="cw-rname"></span>
     </div>
+    <div class="cw-rules">${Object.entries(RULES).map(([k, r]) => `<button type="button" data-rule="${k}" title="${r.label}">${ruleIcon(r.icon)}</button>`).join('')}</div>
     <div class="cw-body">
       <canvas class="cw-wheel" width="${SIZE * 2}" height="${SIZE * 2}" style="width:${SIZE}px;height:${SIZE}px"></canvas>
       <div class="cw-side">
@@ -80,7 +91,7 @@ export function createWheel(root, state, onChange) {
         <label class="cw-paper">paper <input type="color"></label>
       </div>
     </div>`;
-  const cv = root.querySelector('.cw-wheel'), cx = cv.getContext('2d'), ruleSel = root.querySelector('.cw-rule');
+  const cv = root.querySelector('.cw-wheel'), cx = cv.getContext('2d');
   const bri = root.querySelector('.cw-bri input'), paper = root.querySelector('.cw-paper input'), swWrap = root.querySelector('.cw-sw');
   let sel = st.base, wheelV = -1, wheelImg = null;
 
@@ -123,25 +134,28 @@ export function createWheel(root, state, onChange) {
   }
   function refresh(changed) {
     root.querySelectorAll('[data-n]').forEach((b) => b.classList.toggle('on', +b.dataset.n === st.n));
-    ruleSel.value = st.rule; bri.value = st.cols[sel].v; paper.value = st.paper;
+    root.querySelectorAll('[data-rule]').forEach((b) => b.classList.toggle('on', b.dataset.rule === st.rule));
+    root.querySelector('.cw-rname').textContent = RULES[st.rule].label;
+    bri.value = st.cols[sel].v; paper.value = st.paper;
     draw(); swatches();
     if (changed) onChange(st);
   }
-  // drag: the base (or any colour in Custom) moves freely; another colour in a rule turns the whole set and sets its own saturation
-  let drag = -1, lastA = 0;
+  // drag: grab the nearest point
+  let drag = -1;
   const at = (e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * 2, (e.clientY - b.top) * 2]; };
   const toCol = ([x, y]) => ({ a: Math.atan2(SIZE - y, x - SIZE) * 180 / Math.PI, s: Math.min(1, Math.hypot(x - SIZE, y - SIZE) / (R * 2)) });
   cv.addEventListener('pointerdown', (e) => {
     const p = at(e); let best = -1, bd = 40;
     active().forEach((c, k) => { const [x, y] = pos(c), d = Math.hypot(x - p[0], y - p[1]); if (d < bd) { bd = d; best = k; } });
     if (best < 0) return;
-    drag = sel = best; lastA = toCol(p).a; cv.setPointerCapture(e.pointerId); e.preventDefault(); refresh(false);
+    drag = sel = best; cv.setPointerCapture(e.pointerId); e.preventDefault(); refresh(false);
   });
   cv.addEventListener('pointermove', (e) => {
     if (drag < 0) return;
     const n = toCol(at(e)), c = st.cols[drag];
-    if (st.rule === 'custom' || drag === st.base) { c.a = n.a; c.s = n.s; applyRule(st); }
-    else { const d = n.a - lastA; for (const k of active()) k.a += d; c.s = n.s; lastA = n.a; }
+    // the main (base) point carries the others with it and keeps the relationship; moving another point breaks it (Custom)
+    c.a = n.a; c.s = n.s;
+    if (drag === st.base) applyRule(st); else st.rule = 'custom';
     refresh(true);
   });
   const end = () => { drag = -1; };
@@ -152,8 +166,8 @@ export function createWheel(root, state, onChange) {
     st.cols = [st.cols[0], st.cols[2], st.cols[1]]; st.n = n;
     if (sel >= st.n) sel = 0; if (st.base >= st.n) st.base = 0; applyRule(st); refresh(true);
   }; });
-  ruleSel.onchange = () => { st.rule = ruleSel.value; applyRule(st); refresh(true); };
-  bri.oninput = () => { st.cols[sel].v = +bri.value; if (sel === st.base) applyRule(st); else if (RULES[st.rule].mono || RULES[st.rule].shades) st.rule = 'custom'; refresh(true); };
+  root.querySelectorAll('[data-rule]').forEach((b) => { b.onclick = () => { st.rule = b.dataset.rule; applyRule(st); refresh(true); }; });
+  bri.oninput = () => { st.cols[sel].v = +bri.value; if (sel === st.base) applyRule(st); else st.rule = 'custom'; refresh(true); };
   paper.oninput = () => { st.paper = paper.value; onChange(st); };
   refresh(false);
   return { refresh: () => { if (sel >= st.n) sel = 0; refresh(false); } };

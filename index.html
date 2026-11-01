@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261101110000">
+<meta name="build" content="20261101130000">
 <style>
   :root { --bg:#141414; --panel:#1c1c1c; --line:#2e2e2e; --fg:#e8e6e3; --dim:#8a8784; --accent:#d23219; }
   * { box-sizing:border-box; }
@@ -47,7 +47,11 @@
   /* colour wheel (after color.adobe.com) */
   .cw-top { display:flex; gap:8px; align-items:center; justify-content:space-between; margin:6px 0 8px; }
   .cw-n { display:flex; gap:4px; } .cw-n button { padding:4px 9px; }
-  .cw-rule { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px 6px; font:inherit; }
+  .cw-rname { color:var(--dim); font-size:12px; }
+  .cw-rules { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+  .cw-rules button { padding:3px; background:#f2f2f2; border:2px solid transparent; border-radius:7px; line-height:0; }
+  .cw-rules button:hover { border-color:#999; }
+  .cw-rules button.on { background:#fff; border-color:#111; box-shadow:0 0 0 2px var(--accent); }
   .cw-body { display:flex; gap:14px; align-items:flex-start; }
   .cw-wheel { flex:0 0 auto; touch-action:none; cursor:pointer; border-radius:50%; }
   .cw-side { flex:1; display:flex; flex-direction:column; gap:8px; min-width:0; }
@@ -84,7 +88,7 @@
   <div id="side">
     <div class="row"><span class="row" id="versions"></span><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
-    <div class="note" id="ver">Generative Art v002 · v1.40 (2026-11-01)</div>
+    <div class="note" id="ver">Generative Art v002 · v1.41 (2026-11-01)</div>
   </div>
 </div>
 
