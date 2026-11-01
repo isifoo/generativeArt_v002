@@ -1,10 +1,10 @@
 // Generative Art v002: V1 LINE only (WebGPU). Clean copy of the V1 engine from v001.
 // Video -> CLAHE darkness -> spacing field R -> differential growth -> draw.
-import { $, msg, hex, hold, getPalette, onPalette, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
+import { $, msg, hex, hold, VIEW, getPalette, onPalette, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
 const SW = 540, SH = 960, OW = 1080, OH = 1920, SCALE = 2, MAXN = 262144, MARGIN = 6;
 const CS = 4.16, GW = Math.floor(SW / CS) + 1, GH = Math.floor(SH / CS) + 1;
 const NGW = 70, NGH = 121;                 // low-res noise grid (8 sim px per cell)
-const WARM_STEPS = 150;
+const WARM_STEPS = +(new URLSearchParams(location.search).get('warm') || 150);   // growth steps before the first frame (?warm= lowers it, for slow / software GPUs)
 const FPS = 30;
 
 if (!navigator.gpu) { msg('WebGPU is not available in this browser.'); throw new Error('no webgpu'); }
@@ -275,7 +275,7 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
         }
       }
     }
-    F += vec2f(rndn(i, salt), rndn(i, salt + 1u))*0.05;
+    F += vec2f(rndn(i, salt), rndn(i, salt + 1u))*u.p1;    // random push (V1: 0.05)
     let mag = length(F);
     F *= min(1.0, (u.rmin*0.22)/(mag + 1e-9));
   }
@@ -358,6 +358,7 @@ compact: /* wgsl */`
 @group(0) @binding(3) var<storage, read> scanOut: array<u32>;
 @group(0) @binding(4) var<storage, read> blockOff: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pos: array<vec2f>;
+@group(0) @binding(6) var<uniform> u:U;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) g:vec3u) {
   let N = mt[0]; let i = g.x; if (i >= N) { return; }
@@ -368,7 +369,7 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
   if (c == 2u) {
     let q = mv[(i + 1u) % N].xy; let d = q - p;
     let nrm = vec2f(-d.y, d.x)/(length(d) + 1e-9);
-    pos[base + 1u] = (p + q)*0.5 + nrm*rndn(i, salt + 11u)*0.4;
+    pos[base + 1u] = (p + q)*0.5 + nrm*rndn(i, salt + 11u)*u.p2;   // new point jitter (V1: 0.4)
   }
 }`,
 finalize: /* wgsl */`
@@ -393,10 +394,12 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
 };
 
 const DRAW = /* wgsl */`
-struct DU { a:vec4f, col:vec4f, b:vec4f };
+struct DU { a:vec4f, col:vec4f, b:vec4f, c:vec4f };    // c (Dollar 3 dashes): dash length px, continuous from darkness, shortest dash, on
 @group(0) @binding(0) var<uniform> du:DU;
 @group(0) @binding(1) var<storage, read> pts: array<vec2f>;
 @group(0) @binding(2) var<storage, read> mt: array<u32>;
+@group(0) @binding(3) var<storage, read> dark: array<f32>;      // smoothed darkness (0 light .. 1 dark), sim px
+fn hsh(v:f32)->f32 { return fract(sin(v*12.9898)*43758.5453); }
 fn snap(p:vec2f)->vec2f { return select(p, floor(p/du.b.y + 0.5)*du.b.y, du.b.x > 0.5); }
 @vertex fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32) -> @builtin(position) vec4f {
   let N = mt[0];
@@ -409,6 +412,18 @@ fn snap(p:vec2f)->vec2f { return select(p, floor(p/du.b.y + 0.5)*du.b.y, du.b.x 
   let d = B - A; let l = length(d);
   var hw = du.a.y; if (l < 1e-4) { hw = 0.0; }
   let dir = d/max(l, 1e-4); let nrm = vec2f(-dir.y, dir.x);
+  // Dollar 3: the line breaks into dashes in the light tones (short in the lightest, longer in the mids, continuous in the darks).
+  // The dash pattern is fixed in space (along the segment direction, offset per line strip) so it does not crawl as the line grows.
+  if (du.c.w > 0.5) {
+    let m = (P0 + P1)*0.5;
+    let dk = dark[u32(clamp(m.y, 0.0, ${SH - 1}.0))*${SW}u + u32(clamp(m.x, 0.0, ${SW - 1}.0))];
+    let duty = clamp(dk / max(du.c.y, 0.01), 0.0, 1.0);
+    if (duty < 0.999) {
+      let mo = m*du.a.x;
+      let ph = fract(dot(mo, dir)/du.c.x + hsh(floor(dot(mo, nrm)/(du.c.x*0.5))));
+      if (ph > max(duty, du.c.z) || duty < 0.02) { hw = 0.0; }
+    }
+  }
   let e = select(A, B, c >= 2u);
   let along = select(-1.0, 1.0, c >= 2u);
   let side = select(-1.0, 1.0, (c & 1u) == 1u);
@@ -445,7 +460,7 @@ kernel('forces', ['u', 'ro', 'ro', 'rw', 'ro', 'ro', 'ro', 'rw']);
 kernel('decide', ['ro', 'ro', 'ro', 'rw', 'u']);
 kernel('scan1', ['ro', 'ro', 'rw', 'rw']);
 kernel('scan2', ['rw', 'rw']);
-kernel('compact', ['ro', 'ro', 'ro', 'ro', 'ro', 'rw']);
+kernel('compact', ['ro', 'ro', 'ro', 'ro', 'ro', 'rw', 'u']);
 kernel('finalize', ['rw', 'rw']);
 kernel('smooth', ['ro', 'ro', 'rw']);
 
@@ -479,7 +494,7 @@ const B = {
   pos: mk(MAXN * 8, S | CD), mv: mk(MAXN * 16, S), head: mk(GW * GH * 4, S), nxt: mk(MAXN * 4, S),
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
   s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
-  du: mk(48, GPUBufferUsage.UNIFORM | CD),
+  du: mk(64, GPUBufferUsage.UNIFORM | CD),
 };
 const bu = (a) => { const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | CD }); device.queue.writeBuffer(b, 0, new Float32Array(a)); return b; };
 const BU = {
@@ -510,12 +525,13 @@ const G = {
   decide: bg(K.decide, [B.meta, B.mv, B.R, B.cnt, B.u]),
   scan1: bg(K.scan1, [B.meta, B.cnt, B.scanOut, B.blockOff]),
   scan2: bg(K.scan2, [B.meta, B.blockOff]),
-  compact: bg(K.compact, [B.meta, B.mv, B.cnt, B.scanOut, B.blockOff, B.pos]),
+  compact: bg(K.compact, [B.meta, B.mv, B.cnt, B.scanOut, B.blockOff, B.pos, B.u]),
   finalize: bg(K.finalize, [B.meta, B.args]),
   sm1: bg(K.smooth, [B.meta, B.pos, B.s1]), sm2: bg(K.smooth, [B.meta, B.s1, B.s2]), sm3: bg(K.smooth, [B.meta, B.s2, B.s3]),
+  sm4: bg(K.smooth, [B.meta, B.s3, B.s2]),                  // extra smoothing (Dollar 3): s3 -> s2 -> s3
 };
 const drawBG = device.createBindGroup({ layout: drawPipe.getBindGroupLayout(0),
-  entries: [{ binding: 0, resource: { buffer: B.du } }, { binding: 1, resource: { buffer: B.s3 } }, { binding: 2, resource: { buffer: B.meta } }] });
+  entries: [{ binding: 0, resource: { buffer: B.du } }, { binding: 1, resource: { buffer: B.s3 } }, { binding: 2, resource: { buffer: B.meta } }, { binding: 3, resource: { buffer: B.state } }] });
 
 // ---------------------------------------------------------------- timestamps + readback
 const CAP = 480;
@@ -543,7 +559,8 @@ const IND_PTS = 0, IND_SCAN = 16;
 // ---------------------------------------------------------------- sliders
 // One entry per slider. The row (label, slider, value, max field, on/off box) is built from this list.
 // When the box is off the slider reports -1 and the engine uses the "off" behaviour named here.
-const SLIDERS = [
+const D3 = VIEW === 'dollar3';                             // Dollar 3: V1's mechanism, thinner and calmer, with dash levels
+const SLIDERS_V1 = [
   { id: 'stroke', label: 'Stroke px', min: 1, max: 6, step: 0.25, val: 4.75, off: 'no line drawn' },
   { id: 'rmin', label: 'Rmin (dark spacing)', min: 2.5, max: 6, step: 0.05, val: 3.05, off: 'same as Rmax: even spacing' },
   { id: 'rmax', label: 'Rmax (light spacing)', min: 10, max: 30, step: 0.25, val: 13.75, off: 'same as Rmin: even spacing' },
@@ -552,6 +569,25 @@ const SLIDERS = [
   { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 6, off: 'line frozen' },
 ];
 const P = { key: false, subject: 1, fg: [210, 50, 25], bgc: [242, 240, 238] };
+const SLIDERS_D3 = [
+  { head: 'Line (V1 mechanism: spacing carries the contrast)' },
+  { id: 'stroke', label: 'Stroke px', min: 0.5, max: 6, step: 0.05, val: 1.3, off: 'no line drawn' },
+  { id: 'rmin', label: 'Rmin (dark spacing)', min: 2, max: 8, step: 0.05, val: 3.4, off: 'same as Rmax: even spacing' },
+  { id: 'rmax', label: 'Rmax (light spacing)', min: 6, max: 30, step: 0.25, val: 10, off: 'same as Rmin: even spacing' },
+  { id: 'gain', label: 'Gain', min: 1, max: 2.5, step: 0.05, val: 1.5, off: 'gain 1 (raw darkness)' },
+  { head: 'Calm curves (less frequency, less amplitude)' },
+  { id: 'tens', label: 'Straightening', min: 0.1, max: 0.95, step: 0.01, val: 0.6, off: 'V1 (0.30)' },
+  { id: 'jit', label: 'Random push', min: 0, max: 0.2, step: 0.001, val: 0.008, off: 'V1 (0.05)' },
+  { id: 'ijit', label: 'New point jitter', min: 0, max: 0.6, step: 0.01, val: 0.05, off: 'V1 (0.4)' },
+  { id: 'noise', label: 'Spacing noise', min: 0, max: 0.4, step: 0.01, val: 0.05, off: 'no noise' },
+  { id: 'smth', label: 'Smoothing passes', min: 3, max: 31, step: 2, val: 13, off: 'V1 (3)' },
+  { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 4, off: 'line frozen' },
+  { head: 'Lines and dashes (tone levels)' },
+  { id: 'dl', label: 'Dash length px', min: 3, max: 60, step: 0.5, val: 12, off: 'no dashes: continuous line' },
+  { id: 'dfull', label: 'Continuous from darkness', min: 0.1, max: 1, step: 0.01, val: 0.55, off: 'always dashed' },
+  { id: 'dmin', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
+];
+const SLIDERS = D3 ? SLIDERS_D3 : SLIDERS_V1;
 const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
 
 
@@ -571,7 +607,8 @@ const sim = { frame: 0, time: 0, boost: 0, pending: 0, running: true, dropped: 0
 const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
-  U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, 0.30, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0]);
+  const tension = D3 && P.on.tens ? P.tens : 0.30, jit = D3 && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
+  U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit]);
   device.queue.writeBuffer(B.u, 0, U);
 }
 
@@ -736,10 +773,14 @@ function encodeStep(enc) {
 }
 function encodeDraw(enc) {
   run(enc, 'smooth', G.sm1, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm2, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth');
-  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, P.fg[0] / 255, P.fg[1] / 255, P.fg[2] / 255, 1, 0, 3, 0, 0]));
+  const extra = D3 && P.on.smth ? Math.max(0, Math.round((P.smth - 3) / 2)) : 0;     // Dollar 3: more smoothing passes = calmer curves
+  for (let k = 0; k < extra; k++) { run(enc, 'smooth', G.sm4, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth'); }
+  const bw = D3 && !$('#e2pal').checked, fg = bw ? [18, 18, 18] : P.fg;              // Dollar 3: black ink unless the palette is asked for
+  const dash = D3 && P.on.dl ? [P.dl, P.on.dfull ? P.dfull : 99, P.on.dmin ? P.dmin : 0.25, 1] : [12, 1, 0.25, 0];
+  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash]));
   const d = {
     colorAttachments: [{ view: msaaView, resolveTarget: ctx.getCurrentTexture().createView(),
-      clearValue: { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
+      clearValue: D3 && !$('#e2pal').checked ? { r: 1, g: 1, b: 1, a: 1 } : { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
   };
   if (hasTS && timing && qn + 2 <= CAP) { d.timestampWrites = { querySet: qs, beginningOfPassWriteIndex: qn, endOfPassWriteIndex: qn + 1 }; qlabels.push(['draw: render', qn]); qn += 2; }
   const p = enc.beginRenderPass(d);
@@ -875,7 +916,7 @@ $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };
 cam.onStart = () => { lastMedia = -1; resetSim(); };
 cam.onLoad = () => { resetSim(); };
-initDefaults();
+initDefaults(D3 ? '.r1' : '');
 
 // ---------------------------------------------------------------- go
 window.__state = { sim, P, hold, eff };
