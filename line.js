@@ -576,11 +576,11 @@ const SLIDERS_D3 = [
   { id: 'rmax', label: 'Rmax (light spacing)', min: 6, max: 30, step: 0.25, val: 10, off: 'same as Rmin: even spacing' },
   { id: 'gain', label: 'Gain', min: 1, max: 2.5, step: 0.05, val: 1.5, off: 'gain 1 (raw darkness)' },
   { head: 'Calm curves (less frequency, less amplitude)' },
-  { id: 'tens', label: 'Straightening', min: 0.1, max: 0.95, step: 0.01, val: 0.6, off: 'V1 (0.30)' },
-  { id: 'jit', label: 'Random push', min: 0, max: 0.2, step: 0.001, val: 0.008, off: 'V1 (0.05)' },
-  { id: 'ijit', label: 'New point jitter', min: 0, max: 0.6, step: 0.01, val: 0.05, off: 'V1 (0.4)' },
-  { id: 'noise', label: 'Spacing noise', min: 0, max: 0.4, step: 0.01, val: 0.05, off: 'no noise' },
-  { id: 'smth', label: 'Smoothing passes', min: 3, max: 31, step: 2, val: 13, off: 'V1 (3)' },
+  { id: 'tens', label: 'Straightening', min: 0.1, max: 0.98, step: 0.01, val: 0.92, off: 'V1 (0.30)' },
+  { id: 'jit', label: 'Random push', min: 0, max: 0.2, step: 0.001, val: 0.001, off: 'V1 (0.05)' },
+  { id: 'ijit', label: 'New point jitter', min: 0, max: 0.6, step: 0.005, val: 0.005, off: 'V1 (0.4)' },
+  { id: 'noise', label: 'Spacing noise', min: 0, max: 0.4, step: 0.01, val: 0.01, off: 'no noise' },
+  { id: 'smth', label: 'Smoothing passes', min: 3, max: 41, step: 2, val: 21, off: 'V1 (3)' },
   { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 4, off: 'line frozen' },
   { head: 'Lines and dashes (tone levels)' },
   { id: 'dl', label: 'Dash length px', min: 3, max: 60, step: 0.5, val: 12, off: 'no dashes: continuous line' },
@@ -916,7 +916,7 @@ $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };
 cam.onStart = () => { lastMedia = -1; resetSim(); };
 cam.onLoad = () => { resetSim(); };
-initDefaults(D3 ? '.r1' : '');
+initDefaults(D3 ? '.r2' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
 
 // ---------------------------------------------------------------- go
 window.__state = { sim, P, hold, eff };

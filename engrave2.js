@@ -30,9 +30,9 @@ const SLIDERS = [
   { id: 'e2tp', label: 'End taper px', min: 0, max: 80, step: 1, val: 24, off: 'blunt ends' },
   { id: 'e2mn', label: 'Shortest line px', min: 0, max: 200, step: 2, val: 30, off: 'keep every piece' },
   { head: 'Flow (directions)' },
-  { id: 'e2fd', label: 'Follow depth', min: 0, max: 1, step: 0.01, val: 0.8, off: 'ignore depth' },
-  { id: 'e2ft', label: 'Follow tone', min: 0, max: 1, step: 0.01, val: 0.35, off: 'ignore tone' },
-  { id: 'e2fs', label: 'Flow smoothness px', min: 10, max: 300, step: 2, val: 120, off: '120' },
+  { id: 'e2fd', label: 'Follow depth', min: 0, max: 1, step: 0.01, val: 0.2, off: 'ignore depth' },
+  { id: 'e2ft', label: 'Follow tone', min: 0, max: 1, step: 0.01, val: 0.05, off: 'ignore tone' },
+  { id: 'e2fs', label: 'Flow smoothness px', min: 10, max: 400, step: 2, val: 280, off: '120' },
   { id: 'e2rb', label: 'Rebuild lines s', min: 0.2, max: 5, step: 0.1, val: 1, off: 'only on Restart' },
   { head: 'Tone on the lines' },
   { id: 'e2dl', label: 'Dash length px', min: 3, max: 60, step: 0.5, val: 14, off: 'no dashes: continuous' },
@@ -357,7 +357,7 @@ $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#e2pal').onchange = (e) => { P.pal = e.target.checked; };
 $('#restart').onclick = () => { M.sm = null; M.have = false; lastBuild = -1e9; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r1');
+initDefaults('.r2');                                       // r2: near-straight lines by default (v1.92)
 
 window.__state = { M, P, val, tone, rebuild, get buildMs() { return buildMs; }, get nLines() { return nLines; } };
 DM.load();
