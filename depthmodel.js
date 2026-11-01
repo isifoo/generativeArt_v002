@@ -26,6 +26,7 @@ export function createDepthModel(opt, onMap = () => {}) {
         catch (e) { if (ep === 'wasm') throw e; }
       }
       for (const m of MODELS.slice(1)) {                        // optional extra models: used only if the file is there
+        if (opt('dpw', 0.5) <= 0) break;                        // ... and only if the style wants a second model (not downloaded otherwise)
         try {
           const u = new URL('./vendor/' + m.file, import.meta.url).href;
           if ((await fetch(u, { method: 'HEAD' })).ok) M.sess.push(await M.ort.InferenceSession.create(u, { executionProviders: [M.ep] }));

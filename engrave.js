@@ -35,13 +35,16 @@ const SLIDERS = [
   { head: 'Curves (spacing stays even)' },
   { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 0, off: 'no bending by tone' },
   { id: 'enfr', label: 'Flow smoothness px', min: 4, max: 160, step: 1, val: 57, off: '48' },
+  { id: 'endd', label: 'Directions from depth', min: 0, max: 1, step: 0.01, val: 0.85, off: 'one direction everywhere' },
+  { id: 'endr', label: 'Direction smoothness px', min: 8, max: 240, step: 2, val: 110, off: '110' },
+  { id: 'ends', label: 'Direction step deg', min: 8, max: 60, step: 1, val: 30, off: '15' },
+  { id: 'enre', label: 'Region blend', min: 0.02, max: 0.5, step: 0.01, val: 0.2, off: 'hard region edges' },
   { id: 'endn', label: 'Denser in the darks', min: 0, max: 1.5, step: 0.01, val: 0, off: 'same spacing everywhere' },
   { head: 'Dashes (light areas)' },
   { id: 'enmd', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
   { id: 'entp', label: 'Dash taper', min: 0, max: 1, step: 0.01, val: 0.62, off: 'square ends' },
   { head: 'Depth' },
   { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 37, off: 'lowest' },
-  { id: 'dpw', label: 'Second model weight', min: 0, max: 1, step: 0.01, val: 0.5, off: 'first model only' },
   { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.83, off: 'none' },
   { id: 'enbd', label: 'Depth bends lines', min: 0, max: 40, step: 0.5, val: 5.5, off: 'straight lines' },
   { id: 'ensu', label: 'Subject depth', min: 0, max: 1, step: 0.01, val: 0.42, off: 'no background split' },
@@ -97,8 +100,41 @@ function updateTone() {
 
 // ---------------------------------------------------------------- depth (shared model)
 let uploadDepth = false;
-const DM = createDepthModel((id, def) => (P.on[id] === undefined ? def : val(id)), () => { uploadDepth = true; });
+// one model only (Depth Anything V2 Small): the second model is not used, nor downloaded, in this style
+const DM = createDepthModel((id, def) => (P.on[id] === undefined ? (id === 'dpw' ? 0 : def) : val(id)), () => { uploadDepth = true; dirField(); });
 const M = DM.M;
+
+// ---------------------------------------------------------------- direction field from depth (CPU, at the depth map's size)
+// structure tensor of the depth: J = blur(grad d grad d^T); the depth contours run across the main gradient.
+// Stored as (cos 2a, sin 2a) * strength and strength (doubled angle: a line has no front or back, so it averages well).
+let dirBuf = new Float32Array(3), dirMs = 0;
+function blurArr(a, w, h, r, tmp) {
+  for (let y = 0; y < h; y++) { let s = 0; const o = y * w;
+    for (let x = -r; x <= r; x++) s += a[o + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) { tmp[o + x] = s / (2 * r + 1); s += a[o + Math.min(w - 1, x + r + 1)] - a[o + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++) { let s = 0;
+    for (let y = -r; y <= r; y++) s += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) { a[y * w + x] = s / (2 * r + 1); s += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]; } }
+}
+function dirField() {
+  const t0 = performance.now(), { out, w, h } = M, n = w * h;
+  if (dirBuf.length !== n * 3) dirBuf = new Float32Array(n * 3);
+  const xx = new Float32Array(n), xy = new Float32Array(n), yy = new Float32Array(n), tmp = new Float32Array(n);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, gx = out[y * w + Math.min(w - 1, x + 1)] - out[y * w + Math.max(0, x - 1)], gy = out[Math.min(h - 1, y + 1) * w + x] - out[Math.max(0, y - 1) * w + x];
+    xx[i] = gx * gx; xy[i] = gx * gy; yy[i] = gy * gy;
+  }
+  const r = Math.max(1, Math.round(num('endr', 110) / 1920 * h / 2));   // two box passes ~ a gaussian of the chosen size
+  for (const a of [xx, xy, yy]) { blurArr(a, w, h, r, tmp); blurArr(a, w, h, r, tmp); }
+  const st = new Float32Array(n); for (let i = 0; i < n; i++) st[i] = Math.sqrt(xx[i] + yy[i]);
+  const smp = []; for (let i = 0; i < n; i += 13) smp.push(st[i]); smp.sort((a, b) => a - b);
+  const p90 = Math.max(1e-6, smp[(smp.length * 0.9) | 0]);
+  for (let i = 0; i < n; i++) {
+    const a2 = Math.atan2(2 * xy[i], xx[i] - yy[i]) + Math.PI, s = Math.min(1, st[i] / p90);   // + pi: from the gradient to the contour
+    dirBuf[i * 3] = Math.cos(a2) * s; dirBuf[i * 3 + 1] = Math.sin(a2) * s; dirBuf[i * 3 + 2] = s;
+  }
+  dirMs = performance.now() - t0;
+}
 
 // ---------------------------------------------------------------- the engraving shader (WebGL2)
 const canvas = $('#cv'); canvas.width = OW; canvas.height = OH;
@@ -113,6 +149,8 @@ uniform float hasDepth, bt;
 uniform vec2 res;
 uniform float sp, angA, angX, l3, dots;                  // lines; dots: size of the lozenge dots
 uniform float flowAmt, dens;                             // curves and density by contrast
+uniform sampler2D dirT;                                  // direction field from depth: (cos 2a, sin 2a) * strength, strength
+uniform float dirAmt, dirStep, regBlend;
 uniform float dw, minDash, taper;                        // line thickness (share of the spacing), shortest dash, taper
 uniform float bend, subj, bgSp, bgAng, outline;          // depth
 uniform float wob, wobS, rough, vari;                    // organic
@@ -150,6 +188,17 @@ float lozDot(float phiA, float phiB, float r) {
   vec2 c = vec2((fract(phiA) - 0.5) / gA, (fract(phiB) - 0.5) / gB);   // px from the middle of the cell
   return 1.0 - smoothstep(r - 0.6, r + 0.6, length(c));
 }
+// all the line work of one direction set (base angle a): the two crossing families + the optional third
+float levels(float dk, float phiA, float phiB, vec2 pw, float idA);
+float dirInk(float a, float dk, vec2 pw, float k, float warp, float id) {
+  vec2 tA = vec2(cos(a), -sin(a)), nA = vec2(-tA.y, tA.x);
+  vec2 tB = vec2(cos(a + angX), -sin(a + angX)), nB = vec2(-tB.y, tB.x);
+  vec2 tC = vec2(cos(a + angX * 0.5 + 1.5708), -sin(a + angX * 0.5 + 1.5708)), nC = vec2(-tC.y, tC.x);
+  float phiA = dot(pw, nA) / sp * k + warp, phiB = dot(pw, nB) / sp * k - warp * 0.8, phiC = dot(pw, nC) / sp * k + warp * 0.5;
+  float inkv = levels(dk, phiA, phiB, pw, id);
+  if (l3 < 1.0) inkv = max(inkv, family(phiC, phiA + 0.5, clamp((dk - l3) / max(1.0 - l3, 0.05), 0.0, 1.0), pw, id + 2.0));
+  return inkv;
+}
 // The levels of contrast, all at one spacing and one thickness:
 //  1-3: dashes on one direction grow from short marks to continuous lines; 4: the crossing direction comes in the same way;
 //  5: dots grow in the middle of the lozenges. (dk -> ink share of the area: each level adds ink, none makes a line wider.)
@@ -176,14 +225,20 @@ void main() {
   // curves: the lines bend gently along the soft tone and the depth (kept small so the distance between lines stays even)
   float k = 1.0 + dens * (1.0 - tf);                      // optional: closer lines in the darks (off by default)
   float warp = flowAmt * (1.0 - tf) + bend * d;           // in lines
-  vec2 tA = vec2(cos(angA), -sin(angA)), nA = vec2(-tA.y, tA.x);
-  vec2 tB = vec2(cos(angA + angX), -sin(angA + angX)), nB = vec2(-tB.y, tB.x);
-  vec2 tC = vec2(cos(angA + angX * 0.5 + 1.5708), -sin(angA + angX * 0.5 + 1.5708)), nC = vec2(-tC.y, tC.x);
-  float phiA = dot(pw, nA) / sp * k + warp;
-  float phiB = dot(pw, nB) / sp * k - warp * 0.8;
-  float phiC = dot(pw, nC) / sp * k + warp * 0.5;
-  float inkS = levels(dk, phiA, phiB, pw, 1.0);
-  if (l3 < 1.0) inkS = max(inkS, family(phiC, phiA + 0.5, clamp((dk - l3) / max(1.0 - l3, 0.05), 0.0, 1.0), pw, 3.0));   // optional third direction
+  // directions from depth: the lines run along the depth contours (the way the surface turns), the base angle where the
+  // surface is flat. One set of lines cannot rotate smoothly without bunching up, so there is a set every 'direction step'
+  // and each spot draws the set nearest its direction; neighbouring sets meet in soft region edges (like the banknote
+  // regions), so the spacing stays even while the directions vary.
+  float th = angA;
+  if (dirAmt > 0.0 && hasDepth > 0.5) {
+    vec3 dv = texture(dirT, uv).rgb;
+    float thd = -0.5 * atan(dv.g, dv.r);                  // depth contour angle (image y points down: flip to our angles)
+    float diff = mod(thd - angA + 1.5708, 3.14159265) - 1.5708;
+    th = angA + diff * dirAmt * smoothstep(0.12, 0.55, dv.b);          // weak (nearly flat) spots keep the base angle
+  }
+  float q = th / dirStep, q0 = floor(q), wq = smoothstep(0.5 - regBlend, 0.5 + regBlend, q - q0);
+  float inkS = mix(dirInk(q0 * dirStep, dk, pw, k, warp, 1.0 + mod(q0, 8.0) * 4.0),
+                   dirInk((q0 + 1.0) * dirStep, dk, pw, k, warp, 1.0 + mod(q0 + 1.0, 8.0) * 4.0), wq);
 
   // background: the same levels on straight lines at their own angle
   vec2 tG = vec2(cos(bgAng), -sin(bgAng)), nG = vec2(-tG.y, tG.x);
@@ -210,12 +265,12 @@ const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 const U = {};
-for (const n of ['toneT', 'flowT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l3', 'dots', 'flowAmt', 'dens', 'dw', 'minDash', 'taper', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'wob', 'wobS', 'rough', 'vari', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+for (const n of ['toneT', 'flowT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l3', 'dots', 'flowAmt', 'dens', 'dirT', 'dirAmt', 'dirStep', 'regBlend', 'dw', 'minDash', 'taper', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'wob', 'wobS', 'rough', 'vari', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-const tTone = mkTex(0), tDep = mkTex(1), tPrev = mkTex(2), tFlow = mkTex(3);
-gl.uniform1i(U.toneT, 0); gl.uniform1i(U.depT, 1); gl.uniform1i(U.depPrevT, 2); gl.uniform1i(U.flowT, 3);
+const tTone = mkTex(0), tDep = mkTex(1), tPrev = mkTex(2), tFlow = mkTex(3), tDir = mkTex(4);
+gl.uniform1i(U.toneT, 0); gl.uniform1i(U.depT, 1); gl.uniform1i(U.depPrevT, 2); gl.uniform1i(U.flowT, 3); gl.uniform1i(U.dirT, 4);
 let uploadTone = false, pal = getPalette(), tDepth = 0;
 onPalette((p) => { pal = p; });
 function render() {
@@ -226,6 +281,7 @@ function render() {
   if (uploadDepth && M.have) {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tDep); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.out);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tPrev); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.prevOut);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, tDir); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB16F, M.w, M.h, 0, gl.RGB, gl.FLOAT, dirBuf);
     uploadDepth = false; tDepth = performance.now();
   }
   const r = (a) => a.map((x) => x / 255), D = Math.PI / 180;
@@ -235,6 +291,7 @@ function render() {
   gl.uniform1f(U.sp, num('ensp', 13)); gl.uniform1f(U.angA, num('ena', 0) * D);
   gl.uniform1f(U.angX, offv('enx') ? 0 : P.enx * D); gl.uniform1f(U.l3, offv('en3') ? 1 : P.en3); gl.uniform1f(U.dots, offv('endo') ? 0 : P.endo);
   gl.uniform1f(U.flowAmt, offv('enft') ? 0 : P.enft); gl.uniform1f(U.dens, offv('endn') ? 0 : P.endn);
+  gl.uniform1f(U.dirAmt, offv('endd') ? 0 : P.endd); gl.uniform1f(U.dirStep, (offv('ends') ? 15 : P.ends) * D); gl.uniform1f(U.regBlend, offv('enre') ? 0.001 : P.enre);
   gl.uniform1f(U.dw, num('endw', 0.3)); gl.uniform1f(U.minDash, num('enmd', 0.25)); gl.uniform1f(U.taper, offv('entp') ? 0 : P.entp);
   gl.uniform1f(U.bend, offv('enbd') ? 0 : P.enbd); gl.uniform1f(U.subj, offv('ensu') ? -1 : P.ensu);
   gl.uniform1f(U.bgSp, num('enbg', 1)); gl.uniform1f(U.bgAng, num('enba', 0) * D); gl.uniform1f(U.outline, offv('enol') ? 0 : P.enol);
@@ -249,8 +306,8 @@ function render() {
 function renderStats() {
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $('#stats').innerHTML =
-    row('CPU tone map', toneMs.toFixed(1) + ' ms') +
-    row('depth models', M.sess.length > 1 && val('dpw') > 0 ? MODELS.slice(0, 2).map((m) => m.label).join(' + ') : MODELS[0].label) +
+    row('CPU tone map', toneMs.toFixed(1) + ' ms') + row('CPU direction field', dirMs.toFixed(1) + ' ms') +
+    row('depth model', MODELS[0].label) +
     row('runs on', M.ready ? (M.ep === 'webgpu' ? 'GPU (WebGPU)' : 'processor (WASM, slow)') : M.loading ? 'loading...' : '-') +
     row('depth model time', M.ms.toFixed(1) + ' ms') + row('depth maps per second', M.fps.toFixed(1));
   $('#budget').style.width = Math.min(100, (toneMs + M.ms / 4) / 33.3 * 100) + '%';
@@ -273,7 +330,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#restart').onclick = () => { M.sm = null; M.have = false; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83); defaults = Gerry's settings (v1.84)
+initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83); defaults = Gerry's settings (v1.84); directions from depth (v1.85)
 
 window.__state = { M, P, val, tone };
 DM.load();
