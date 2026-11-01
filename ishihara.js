@@ -4,6 +4,7 @@
 // Every circle eases to its size and colour (smooth damp: slow start, slow end), nothing pops.
 // Circles that get squeezed shrink away, gaps get new circles that grow in from zero.
 import { $, hold, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
+import { createWheel, colRGB, colHex, hexToCol } from './colorwheel.js';
 
 const SW = 540, SH = 960, SCALE = 2;          // circle space (sim px), canvas is 2x
 const FW = 135, FH = 240;                     // tone field, 4 sim px per cell
@@ -17,13 +18,12 @@ const SLIDERS = [
   { id: 'ihth', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
   { head: 'Value (dark / light of each circle)' },
   { id: 'ihc', label: 'Value contrast', min: 1, max: 30, step: 0.5, val: 7, off: 'linear, no curve' },
-  { id: 'ihvd', label: 'Darkest value %', min: 0, max: 100, step: 1, val: 40, off: '0 (black)' },
-  { id: 'ihvl', label: 'Lightest value %', min: 0, max: 100, step: 1, val: 70, off: '100 (white)' },
+  { id: 'ihvr', label: 'Value range %', min: 0, max: 100, step: 1, val: 20, off: '0: the colours exactly as picked' },
   { id: 'ihv', label: 'Value variety %', min: 0, max: 20, step: 0.5, val: 4, off: 'flat values' },
   { head: 'Hue (figure hue vs ground hue)' },
   { id: 'ihhc', label: 'Hue contrast', min: 1, max: 40, step: 0.5, val: 14, off: 'hue blends with the tone' },
   { id: 'ihhs', label: 'Hue split', min: 0, max: 1, step: 0.01, val: 0.5, off: '0.5' },
-  { id: 'ihsat', label: 'Saturation %', min: 0, max: 100, step: 1, val: 68, off: '0 (grey)' },
+  { id: 'ihsat', label: 'Saturation scale %', min: 0, max: 200, step: 1, val: 100, off: '100: as picked' },
   { id: 'ihhj', label: 'Hue variety deg', min: 0, max: 40, step: 1, val: 8, off: 'one hue per side' },
   { head: 'Size' },
   { id: 'ihmax', label: 'Max circle px', min: 4, max: 40, step: 0.5, val: 11, off: 'all circles min size' },
@@ -55,8 +55,8 @@ function eff() {
     lo: val('ihlo'), hi: val('ihlo'), local: Math.max(0, val('ihl')), lrad: 10,   // local contrast radius: 10 cells = 40 px
     th: P.on.ihth ? P.ihth : 0,
     vcon: val('ihc'), levels: 0,
-    vd: val('ihvd') < 0 ? 0 : P.ihvd / 100, vl: val('ihvl') < 0 ? 1 : P.ihvl / 100, vvar: Math.max(0, val('ihv')) / 100,
-    hcon: val('ihhc'), hsplit: P.on.ihhs ? P.ihhs : 0.5, sat: Math.max(0, val('ihsat')) / 100, hjit: Math.max(0, val('ihhj')),
+    vrange: Math.max(0, val('ihvr')) / 100, vvar: Math.max(0, val('ihv')) / 100,
+    hcon: val('ihhc'), hsplit: P.on.ihhs ? P.ihhs : 0.5, satk: val('ihsat') < 0 ? 1 : P.ihsat / 100, hjit: Math.max(0, val('ihhj')),
     rmax: Math.max(mx, mn), rmin: Math.min(mx, mn), sizeDark: Math.max(0, val('ihsz')), sizeDetail: Math.max(0, val('ihd')),
     dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')), gdark: P.on.ihgd ? P.ihgd : 0, fill: Math.max(0, val('ihfl')), wig: Math.max(0, val('ihw')), wigs: Math.max(0, val('ihws')),
     cease: val('ihe'), sease: val('ihse'), repack: Math.max(0, val('ihrp')), smooth: Math.max(0, val('ihf')), hy: Math.max(0, val('ihhy')),
@@ -69,33 +69,53 @@ function curve(t, c, m) {
   return clamp01((1 / (1 + Math.exp(-(t - m) * c)) - s0) / (s1 - s0));
 }
 
-// ---------------------------------------------------------------- palettes: figure hue (dark side), ground hue (light side), paper
-const PALETTES = {
-  classic: { hf: 14, hg: 88, paper: '#f7f2e8' },        // red-orange on green
-  pastel: { hf: 335, hg: 212, paper: '#f8f5f1' },       // pink on blue
-  blueorange: { hf: 24, hg: 205, paper: '#f6f3ee' },    // orange on blue
-  bw: { hf: 0, hg: 0, paper: '#f7f6f4', grey: true },   // no hue
-  red: { hf: 6, hg: 6, paper: '#fbf8f6' },              // one hue, value only
+// ---------------------------------------------------------------- colours: 2 or 3 picked on the colour wheel (Edit > Colours), plus paper
+// colour 1 = dark areas, last colour = light areas, the middle one (3 colours) = the tones between. Presets load into the wheel.
+const PRESETS = {
+  classic: { cols: ['#c4471f', '#e9953a', '#93b04e'], paper: '#f7f2e8' },
+  pastel: { cols: ['#c9608a', '#e3a4bf', '#86a9d6'], paper: '#f8f5f1' },
+  blueorange: { cols: ['#e07a2c', '#e8c26a', '#3f7fc4'], paper: '#f6f3ee' },
+  bw: { cols: ['#1e1e1e', '#7a7a7a', '#cfcfcf'], paper: '#f7f6f4' },
+  red: { cols: ['#a8200f', '#e0573c', '#f3b2a2'], paper: '#fbf8f6' },
 };
+const COL = { n: 2, rule: 'custom', base: 0, cols: [], paper: '#f7f2e8' };
+function loadPreset(name) {
+  const pr = PRESETS[name] || PRESETS.classic;
+  const [d, m, l] = pr.cols.map(hexToCol);                   // presets list dark, middle, light; 2 colours = dark + light (middle kept as the spare)
+  COL.cols = COL.n === 3 ? [d, m, l] : [d, l, m]; COL.paper = pr.paper; COL.rule = 'custom'; COL.base = 0;
+}
+loadPreset('classic');
+let colRGBs = [];                                             // the active colours as [r, g, b]
+const syncCols = () => { colRGBs = COL.cols.slice(0, COL.n).map(colRGB); };
+syncCols();
 function hsl2rgb(h, s, l) {
   h = ((h % 360) + 360) % 360 / 360;
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
   const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
   return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
 }
-// hue position 0 = figure hue, 1 = ground hue (shortest way round); value 0 = darkest, 1 = lightest
-function colourOf(hpos, vpos, jit, e, pal) {
-  let d = pal.hg - pal.hf; d = ((d + 540) % 360) - 180;
-  const h = pal.hf + d * hpos + jit * e.hjit, l = e.vd + (e.vl - e.vd) * vpos;
-  return hsl2rgb(h, pal.grey ? 0 : e.sat, clamp01(l + jit * e.vvar));
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  if (d < 1e-6) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  const h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+// hue position 0 = first colour (dark areas) .. 1 = last colour (light areas); value moves the lightness around the picked colour
+function colourOf(hpos, vpos, jit, e) {
+  const k = colRGBs.length - 1, x = clamp01(hpos) * k, i = Math.min(k - 1, x | 0), f = x - i;
+  const a = colRGBs[i], b = colRGBs[i + 1];
+  const [h, s, l] = rgb2hsl(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f);
+  return hsl2rgb(h + jit * e.hjit, clamp01(s * e.satk), clamp01(l + (vpos - 0.5) * e.vrange + jit * e.vvar));
 }
 const HQ = 16, VQ = 32, SHADES = 3;           // fill buckets: hue steps x value steps x shade variants
 const fillCache = new Map();
 let fillKey = '';
-function fillOf(qh, qv, s, e, pal) {
+function fillOf(qh, qv, s, e) {
   const key = qh * 10000 + qv * 10 + s;
   let f = fillCache.get(key);
-  if (!f) { const c = colourOf(qh / HQ, qv / VQ, s - 1, e, pal).map(Math.round); f = `rgb(${c[0]},${c[1]},${c[2]})`; fillCache.set(key, f); }
+  if (!f) { const c = colourOf(qh / HQ, qv / VQ, s - 1, e).map(Math.round); f = `rgb(${c[0]},${c[1]},${c[2]})`; fillCache.set(key, f); }
   return f;
 }
 
@@ -335,20 +355,20 @@ const canvas = $('#cv'), ctx = canvas.getContext('2d');
 const pv = document.createElement('canvas'); pv.width = FW; pv.height = FH;
 const pvx = pv.getContext('2d'), pvImg = pvx.createImageData(FW, FH);
 function draw() {
-  const pal = PALETTES[P.pal] || PALETTES.classic, e = eff();
-  const key = [P.pal, e.vd, e.vl, e.vvar, e.sat, e.hjit].join();
+  const e = eff();
+  const key = [colRGBs.join(), e.vrange, e.vvar, e.satk, e.hjit].join();
   if (key !== fillKey) { fillCache.clear(); fillKey = key; }    // colours changed: rebuild the fill styles
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (P.prev) {                                               // preview: the colour map the circles follow
     for (let i = 0; i < N; i++) {
-      const c = colourOf(hueOf(base[i], e), valueOf(base[i], e), 0, e, pal);
+      const c = colourOf(hueOf(base[i], e), valueOf(base[i], e), 0, e);
       pvImg.data[i * 4] = c[0]; pvImg.data[i * 4 + 1] = c[1]; pvImg.data[i * 4 + 2] = c[2]; pvImg.data[i * 4 + 3] = 255;
     }
     pvx.putImageData(pvImg, 0, 0);
     ctx.imageSmoothingEnabled = true; ctx.drawImage(pv, 0, 0, canvas.width, canvas.height);
     return;
   }
-  ctx.fillStyle = pal.paper; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = COL.paper; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   const buckets = new Map(), wa = e.wig, wt = performance.now() / 1000 * e.wigs * Math.PI * 2;
   for (let i = 0; i < C.n; i++) {
@@ -364,7 +384,7 @@ function draw() {
       if (wa > 0) { const p = C.ph[i]; x += wa * (0.6 * Math.sin(wt + p) + 0.4 * Math.sin(wt * 1.73 + p * 1.3)); y += wa * (0.6 * Math.sin(wt * 1.21 + p * 0.7) + 0.4 * Math.sin(wt * 0.83 + p * 1.9)); }
       ctx.moveTo(x + C.r[i], y); ctx.arc(x, y, C.r[i], 0, Math.PI * 2);
     }
-    ctx.fillStyle = fillOf((k / 10000) | 0, ((k % 10000) / 10) | 0, k % 10, e, pal); ctx.fill();
+    ctx.fillStyle = fillOf((k / 10000) | 0, ((k % 10000) / 10) | 0, k % 10, e); ctx.fill();
   }
 }
 
@@ -398,12 +418,20 @@ function loop() {
 canvas.width = SW * SCALE; canvas.height = SH * SCALE;
 $('#settings').addEventListener('input', () => { dirty = true; }, true);   // a paused video still follows every control
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
-$('#ihpal').onchange = (e) => { P.pal = e.target.value; dirty = true; };
+// colour wheel: edits land in COL; the hidden #ihcols field carries them into Set default
+const colsField = $('#ihcols');
+const saveCols = () => { colsField.value = JSON.stringify({ n: COL.n, rule: COL.rule, base: COL.base, paper: COL.paper, cols: COL.cols.map(colHex) }); };
+const wheel = createWheel($('#ihwheel'), COL, () => { syncCols(); saveCols(); });
+colsField.addEventListener('input', () => {                   // Set default restores the colours through this field
+  try { const o = JSON.parse(colsField.value); Object.assign(COL, { n: o.n, rule: o.rule, base: o.base, paper: o.paper, cols: o.cols.map(hexToCol) }); syncCols(); wheel.refresh(); } catch {}
+});
+$('#ihpal').onchange = (e) => { loadPreset(e.target.value); syncCols(); saveCols(); wheel.refresh(); };
+saveCols();
 $('#ihinv').onchange = (e) => { P.inv = e.target.checked; dirty = true; };
 $('#ihprev').onchange = (e) => { P.prev = e.target.checked; };
 $('#restart').onclick = () => { C.n = 0; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r3');                                       // r3: slider set of v1.31 (v1.32 only added sliders, saved defaults still apply)
+initDefaults('.r4');                                       // r4: colours moved to the colour wheel in v1.40, older saved defaults are dropped
 
 window.__state = { C, P, eff, base, edge, fieldInfo, st };
 requestAnimationFrame(loop);
