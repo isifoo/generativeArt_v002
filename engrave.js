@@ -11,6 +11,7 @@
 //  6. Organic: slow wobble of the line paths, ink bleed roughness on the edges, a slight weight change per line.
 //  7. Optional outline where depth jumps (the silhouette).
 // Inputs: a tone map (video, levels + local contrast + curve, CPU, 270 x 480) and the depth map (depthmodel.js). Ink / paper = palette.
+// v1.81: tuned against a close-up of the $100 Franklin portrait: tone reproduction within ~5 points per tone band (38% ink vs 38%).
 import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
 import { createDepthModel, MODELS, OW, OH } from './depthmodel.js';
 
@@ -18,38 +19,41 @@ import { createDepthModel, MODELS, OW, OH } from './depthmodel.js';
 const SLIDERS = [
   { head: 'Tone (contrast map)' },
   { id: 'enlo', label: 'Levels clip %', min: 0, max: 20, step: 0.5, val: 1, off: 'raw video' },
-  { id: 'enl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 1.2, off: 'global tone only' },
+  { id: 'enl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 0.5, off: 'global tone only' },
   { id: 'enc', label: 'Contrast', min: 0.2, max: 4, step: 0.01, val: 1.1, off: '1' },
   { id: 'enb', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
-  { id: 'enmi', label: 'Minimum ink', min: 0, max: 0.4, step: 0.01, val: 0.12, off: 'bare paper in the light areas' },
-  { id: 'enpw', label: 'Paper white', min: 0.5, max: 1, step: 0.005, val: 0.97, off: 'no bare paper (1)' },
+  { id: 'enmi', label: 'Minimum ink', min: 0, max: 0.4, step: 0.01, val: 0.08, off: 'bare paper in the light areas' },
+  { id: 'enpw', label: 'Paper white', min: 0.5, max: 1, step: 0.005, val: 0.985, off: 'no bare paper (1)' },
   { id: 'ent', label: 'Tone smoothing', min: 0, max: 0.95, step: 0.01, val: 0.5, off: 'none' },
-  { head: 'Lines' },
-  { id: 'ensp', label: 'Line spacing px', min: 3, max: 24, step: 0.1, val: 7, off: '7' },
-  { id: 'ena', label: 'Angle deg', min: -90, max: 90, step: 0.5, val: 28, off: '0' },
-  { id: 'enx', label: 'Cross angle deg', min: 20, max: 90, step: 0.5, val: 58, off: 'no cross lines' },
-  { id: 'en2', label: 'Cross lines from', min: 0.1, max: 0.9, step: 0.01, val: 0.42, off: 'never' },
-  { id: 'en3', label: 'Third lines from', min: 0.3, max: 1, step: 0.01, val: 0.78, off: 'never' },
+  { head: 'Lines (measured on the $100 portrait)' },
+  { id: 'ensp', label: 'Line spacing px', min: 3, max: 40, step: 0.1, val: 13, off: '13' },
+  { id: 'ena', label: 'Angle deg', min: -90, max: 90, step: 0.5, val: 40, off: '0' },
+  { id: 'enx', label: 'Cross angle deg', min: 20, max: 90, step: 0.5, val: 62, off: 'no cross lines' },
   { id: 'enw', label: 'Line weight', min: 0.3, max: 2, step: 0.01, val: 1, off: '1' },
+  { id: 'en3', label: 'Third lines from', min: 0.3, max: 1, step: 0.01, val: 0.82, off: 'never' },
+  { head: 'Curves and density (driven by contrast)' },
+  { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 2.2, off: 'no bending by tone' },
+  { id: 'enfr', label: 'Flow smoothness px', min: 4, max: 160, step: 1, val: 48, off: '48' },
+  { id: 'endn', label: 'Denser in the darks', min: 0, max: 1.5, step: 0.01, val: 0.35, off: 'same spacing everywhere' },
+  { head: 'Dashes (light skin) to lines (darks)' },
+  { id: 'endw', label: 'Mark thickness', min: 0.08, max: 0.7, step: 0.01, val: 0.24, off: 'hairlines: tone sets the width only' },
+  { id: 'enmd', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
+  { id: 'entp', label: 'Dash taper', min: 0, max: 1, step: 0.01, val: 0.85, off: 'square ends' },
   { head: 'Depth' },
   { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 18, off: 'lowest' },
   { id: 'dpw', label: 'Second model weight', min: 0, max: 1, step: 0.01, val: 0.5, off: 'first model only' },
   { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' },
-  { id: 'enbd', label: 'Depth bends lines', min: 0, max: 40, step: 0.5, val: 9, off: 'straight lines' },
+  { id: 'enbd', label: 'Depth bends lines', min: 0, max: 40, step: 0.5, val: 6, off: 'straight lines' },
   { id: 'ensu', label: 'Subject depth', min: 0, max: 1, step: 0.01, val: 0.45, off: 'no background split' },
-  { id: 'enbg', label: 'Background spacing', min: 0.3, max: 3, step: 0.01, val: 0.75, off: 'same as subject' },
+  { id: 'enbg', label: 'Background spacing', min: 0.3, max: 3, step: 0.01, val: 0.85, off: 'same as subject' },
   { id: 'enba', label: 'Background angle', min: -90, max: 90, step: 0.5, val: 0, off: '0 (horizontal)' },
-  { id: 'enol', label: 'Outline', min: 0, max: 3, step: 0.05, val: 0.8, off: 'no outline' },
-  { head: 'Dots and dashes' },
-  { id: 'endl', label: 'Dash length px', min: 2, max: 60, step: 0.5, val: 14, off: 'no dashes' },
-  { id: 'endt', label: 'Dashes below tone', min: 0, max: 0.6, step: 0.01, val: 0.22, off: 'no dashes' },
-  { id: 'endo', label: 'Lozenge dots', min: 0, max: 2, step: 0.01, val: 0.9, off: 'no dots' },
+  { id: 'enol', label: 'Outline', min: 0, max: 3, step: 0.05, val: 0.6, off: 'no outline' },
   { head: 'Organic' },
-  { id: 'enwb', label: 'Wobble px', min: 0, max: 6, step: 0.05, val: 0.9, off: 'ruler straight' },
-  { id: 'enws', label: 'Wobble scale px', min: 10, max: 400, step: 1, val: 120, off: '120' },
-  { id: 'enr', label: 'Ink roughness', min: 0, max: 1, step: 0.01, val: 0.35, off: 'clean edges' },
+  { id: 'enwb', label: 'Wobble px', min: 0, max: 6, step: 0.05, val: 0.7, off: 'ruler straight' },
+  { id: 'enws', label: 'Wobble scale px', min: 10, max: 400, step: 1, val: 140, off: '140' },
+  { id: 'enr', label: 'Ink roughness', min: 0, max: 1, step: 0.01, val: 0.3, off: 'clean edges' },
   { id: 'env', label: 'Line weight variety', min: 0, max: 0.6, step: 0.01, val: 0.12, off: 'every line the same' },
-  { id: 'enh', label: 'Hairline px', min: 0, max: 2, step: 0.05, val: 0.55, off: 'lines vanish in the highlights' },
+  { id: 'enh', label: 'Hairline px', min: 0, max: 2, step: 0.05, val: 0.5, off: 'lines vanish in the highlights' },
 ];
 const P = {};
 const val = buildSliders(SLIDERS, P);
@@ -61,6 +65,7 @@ const TW = 270, TH = 480, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
 const tone = new Float32Array(TN).fill(1), gray = new Float32Array(TN), mean = new Float32Array(TN), tmp = new Float32Array(TN);
+const flow = new Float32Array(TN).fill(1);                    // a soft copy of the tone: the lines curve along it and pack closer where it is dark
 let toneReady = false, toneMs = 0, dirty = true;
 function boxBlur(src, dst, r) {
   for (let y = 0; y < TH; y++) { let a = 0; const row = y * TW;
@@ -86,6 +91,8 @@ function updateTone() {
     t = (t - 0.5) * con + 0.5 + br; t = Math.min(1, Math.max(0, t));
     tone[i] += (t - tone[i]) * k;
   }
+  boxBlur(tone, flow, Math.max(1, Math.round(num('enfr', 48) / 4)));   // flow smoothness px (output) -> tone map px
+  boxBlur(flow, flow, Math.max(1, Math.round(num('enfr', 48) / 4)));
   toneReady = true; dirty = false; uploadTone = true; toneMs = performance.now() - t0;
 }
 
@@ -102,90 +109,80 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D toneT, depT, depPrevT;
+uniform sampler2D toneT, flowT, depT, depPrevT;
 uniform float hasDepth, bt;
 uniform vec2 res;
-uniform float sp, angA, angX, l2, l3, weight;            // lines
+uniform float sp, angA, angX, l3, weight;                // lines
+uniform float flowAmt, dens;                             // curves and density by contrast
+uniform float dw, minDash, taper;                        // dashes: mark thickness, shortest dash, taper
 uniform float bend, subj, bgSp, bgAng, outline;          // depth
-uniform float dashLen, dashBelow, dots;                  // dots and dashes
-uniform float wob, wobS, rough, vari, hair;              // organic, hairline px
-uniform float minInk, pwhite;                            // tone floor
+uniform float wob, wobS, rough, vari, hair;              // organic
+uniform float minInk, pwhite;
 uniform vec3 ink, paper;
 
-// value noise (organic wobble, ink bleed)
 float h21(vec2 q) { q = fract(q * vec2(127.1, 311.7)); q += dot(q, q + 34.53); return fract(q.x * q.y); }
 float vnoise(vec2 q) { vec2 i = floor(q), f = fract(q); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 float fbm(vec2 q) { return vnoise(q) * 0.6 + vnoise(q * 2.03 + 7.1) * 0.3 + vnoise(q * 4.1 + 3.3) * 0.1; }
-
 float depthAt(vec2 u) { return hasDepth > 0.5 ? mix(texture(depPrevT, u).r, texture(depT, u).r, bt) : 0.5; }
 
-// one line family: phase phi (lines at whole numbers). Coverage f (0..1) of the line spacing is ink. Returns ink 0..1.
-// Also returns the along-line dash gate for light lines.
-float family(float phi, float f, vec2 px, vec2 tdir, float lineId, float dk) {
+// One line family, with the other family as its lattice.
+//  phi : this family's phase (lines at whole numbers);  psi : the crossing family's phase (cuts the line into dashes)
+//  f   : the ink this family must lay down (share of its cell)
+// The banknote rule, measured on the $100 portrait: in the light tones the marks are short BOLD dashes of nearly fixed
+// thickness (dw of the spacing) and the tone sets their LENGTH (down to dots); once a dash is as long as its cell the
+// line is continuous, and only then does the tone make it THICKER, until the paper is left as white lozenges.
+float family(float phi, float psi, float f, vec2 px, float id) {
   if (f <= 0.001) return 0.0;
   float g = length(vec2(dFdx(phi), dFdy(phi))) + 1e-5;   // lines per px
-  float dpx = abs(fract(phi + 0.5) - 0.5) / g;           // px to the nearest line centre
-  float spx = 1.0 / g;                                    // spacing in px here
-  float w = 1.0 + vari * (h21(vec2(floor(phi + 0.5), lineId)) - 0.5) * 2.0;   // a slight weight change per line
-  // half-width: coverage f of the spacing, but never thinner than a hairline (engravers keep fine lines in the highlights)
-  float hw = max(0.5 * spx * clamp(f * w, 0.0, 1.0), hair * smoothstep(0.0, 0.08, f));
-  // ink bleed: the edge wanders a little
-  float n = (fbm(px * 0.35 + lineId * 13.0) - 0.5) * rough * 1.6;
-  float ink = 1.0 - smoothstep(hw - 0.6 + n, hw + 0.6 + n, dpx);
-  // light lines break into dashes and dots: along-line gate, duty grows with coverage
-  if (dashLen > 0.0 && dashBelow > 0.0) {
-    float duty = clamp(dk / dashBelow, 0.08, 1.0);           // the lighter the spot, the shorter the dashes (down to dots)
-    float s = dot(px, tdir) / dashLen + h21(vec2(floor(phi + 0.5), lineId + 3.0)) * 7.0;
-    float a = abs(fract(s) - 0.5) * 2.0;                  // 0 at dash centre .. 1 at its end
-    float gate = 1.0 - smoothstep(duty - 0.1, duty + 0.1, a);
-    ink *= dk < dashBelow ? gate : 1.0;
-  }
-  return ink;
+  float dpx = abs(fract(phi + 0.5) - 0.5) / g;           // px to the line centre
+  float spx = 1.0 / g;
+  float w = 1.0 + vari * (h21(vec2(floor(phi + 0.5), id)) - 0.5) * 2.0;
+  float L = clamp(f / dw, minDash, 1.0);                  // dash length (share of the cell between two crossings)
+  float wid = min(max(dw, f) * w, 0.74);                   // thickness (share of the spacing): fixed until the dash is full; capped so the darks keep white lozenges
+  if (L < 1.0) wid = dw * w * clamp(f / (dw * minDash), 0.25, 1.0);   // below the shortest dash: smaller dots
+  float a = (fract(psi) - 0.5) / (0.5 * L);              // -1 .. 1 along the dash
+  float prof = L >= 0.999 ? 1.0 : (abs(a) >= 1.0 ? 0.0 : mix(1.0, sqrt(max(0.0, 1.0 - a * a)), taper));   // pointed ends
+  float hw = max(0.5 * spx * clamp(wid, 0.0, 1.0) * prof, hair * prof);
+  float n = (fbm(px * 0.35 + id * 13.0) - 0.5) * rough * 1.6;   // ink bleed
+  return 1.0 - smoothstep(hw - 0.6 + n, hw + 0.6 + n, dpx);
 }
 
 void main() {
   vec2 px = uv * res;
   float t = texture(toneT, uv).r;                         // tone: 0 dark .. 1 light
-  // darkness = ink to put down. Engravers keep fine lines almost everywhere: a minimum ink, and bare paper only above paper white
+  float tf = texture(flowT, uv).r;                        // soft tone: the lines flow along it
   float dk = mix(minInk, 1.0, pow(1.0 - t, 0.85)) * (1.0 - smoothstep(pwhite, min(1.0, pwhite + 0.03), t));
   float d = depthAt(uv);
-  float s = subj < 0.0 ? 1.0 : smoothstep(subj - 0.04, subj + 0.04, d);   // 1 = subject, 0 = background
-  vec2 w2 = vec2(fbm(px / wobS), fbm(px / wobS + 17.3)) - 0.5;
-  vec2 pw = px + w2 * wob * 2.0;                          // wobbled position
+  float s = subj < 0.0 ? 1.0 : smoothstep(subj - 0.04, subj + 0.04, d);
+  vec2 pw = px + (vec2(fbm(px / wobS), fbm(px / wobS + 17.3)) - 0.5) * wob * 2.0;
 
-  // ---- subject: family A bent by depth, cross family B, third family C
-  // angles are the direction of the lines (0 = horizontal); t = along the line, n = across (the phase runs along n)
+  // curves and density by contrast: the phase is warped by the soft tone (lines bend around light and dark shapes, the
+  // way they wrap the cheek and the eye) and by depth, and scaled up where the soft tone is dark (lines pack closer)
+  float k = 1.0 + dens * (1.0 - tf);                      // density: more lines per px in the darks
+  float warp = flowAmt * (1.0 - tf) + bend * d;           // in lines
   vec2 tA = vec2(cos(angA), -sin(angA)), nA = vec2(-tA.y, tA.x);
   vec2 tB = vec2(cos(angA + angX), -sin(angA + angX)), nB = vec2(-tB.y, tB.x);
-  vec2 tC = vec2(cos(angA - angX * 0.5), -sin(angA - angX * 0.5)), nC = vec2(-tC.y, tC.x);
-  float phiA = dot(pw, nA) / sp + bend * d;
-  float phiB = dot(pw, nB) / sp - bend * d * 0.7;
-  float phiC = dot(pw, nC) / (sp * 1.15) + bend * d * 0.4;
-  // the engraver's split of the darkness over the layers
-  float fA = dk / max(l2, 0.05);                          // A carries the tone alone up to l2
-  float fB = angX > 0.0 && l2 < 1.0 ? (dk - l2) / max(1.0 - l2, 0.05) : 0.0;
-  float fC = l3 < 1.0 ? (dk - l3) / max(1.0 - l3, 0.05) : 0.0;
-  fA = clamp(fA * weight, 0.0, 1.0) * mix(0.62, 1.0, smoothstep(l2, 1.0, dk));   // A keeps thickening into the darks
-  float inkS = max(family(phiA, fA, pw, tA, 1.0, dk), max(family(phiB, clamp(fB * weight, 0.0, 1.0) * 0.8, pw, tB, 2.0, dk), family(phiC, clamp(fC * weight, 0.0, 1.0) * 0.75, pw, tC, 3.0, dk)));
-  // lozenge dots: a dot in the middle of each A x B cell, in the mid tones
-  if (dots > 0.0) {
-    float gA = length(vec2(dFdx(phiA), dFdy(phiA))) + 1e-5, gB = length(vec2(dFdx(phiB), dFdy(phiB))) + 1e-5;
-    vec2 c = vec2((fract(phiA) - 0.5) / gA, (fract(phiB) - 0.5) / gB);   // px from the middle of the cell (lines sit at whole numbers)
-    float r = dots * sp * 0.22 * smoothstep(0.12, 0.35, dk) * (1.0 - smoothstep(0.55, 0.8, dk));
-    inkS = max(inkS, 1.0 - smoothstep(r - 0.6, r + 0.6, length(c)));
-  }
+  vec2 tC = vec2(cos(angA + angX * 0.5 + 1.5708), -sin(angA + angX * 0.5 + 1.5708)), nC = vec2(-tC.y, tC.x);
+  float phiA = dot(pw, nA) / sp * k + warp;
+  float phiB = dot(pw, nB) / sp * k - warp * 0.8;
+  float phiC = dot(pw, nC) / (sp * 1.2) * k + warp * 0.5;
 
-  // ---- background: straight lines at their own angle and spacing, a crossing family in the darks
+  // the darkness is shared by the two crossing families; dashes join into lines at 'join'; the third family only in the darkest
+  // the darkness is shared by the two crossing families (B a little lighter); the third family only in the darkest
+  // light skin: mostly one direction of dashes; the crossing direction joins in from the mid tones (as on the $100 cheek)
+  float fA = clamp(dk * weight * 0.56, 0.0, 1.0), fB = angX > 0.0 ? fA * 0.85 * smoothstep(0.12, 0.45, dk) : 0.0;
+  float fC = l3 < 1.0 ? clamp((dk - l3) / max(1.0 - l3, 0.05), 0.0, 1.0) * 0.35 * weight : 0.0;
+  float inkS = max(family(phiA, phiB, fA, pw, 1.0), family(phiB, phiA, fB, pw, 2.0));
+  inkS = max(inkS, family(phiC, phiA + 0.5, fC, pw, 3.0));
+
+  // background: straight lines at their own angle and spacing, crossing lines in the darker parts
   vec2 tG = vec2(cos(bgAng), -sin(bgAng)), nG = vec2(-tG.y, tG.x);
-  float bsp = sp * bgSp;
-  float phiG = dot(pw, nG) / bsp;
-  float phiH = dot(pw, tG) / bsp;
-  float inkB = max(family(phiG, clamp(dk / max(l2, 0.05) * weight, 0.0, 1.0) * mix(0.62, 1.0, smoothstep(l2, 1.0, dk)), pw, tG, 4.0, dk),
-                   family(phiH, clamp((dk - l2) / max(1.0 - l2, 0.05) * weight, 0.0, 1.0) * 0.8, pw, nG, 5.0, dk));
+  float phiG = dot(pw, nG) / (sp * bgSp), phiH = dot(pw, tG) / (sp * bgSp);
+  float inkB = max(family(phiG, phiH, clamp(dk * weight * 0.75, 0.0, 1.0), pw, 4.0),
+                   family(phiH, phiG, clamp((dk - 0.5) * 1.6 * weight, 0.0, 1.0) * 0.8, pw, 5.0));
 
   float inkv = mix(inkB, inkS, s);
-  // ---- outline: a thin line where depth jumps (the silhouette)
   if (outline > 0.0 && hasDepth > 0.5) {
     float e = length(vec2(dFdx(d), dFdy(d))) * res.y * 0.02;
     inkv = max(inkv, smoothstep(0.25, 0.6, e * outline));
@@ -206,16 +203,19 @@ const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 const U = {};
-for (const n of ['toneT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l2', 'l3', 'weight', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'dashLen', 'dashBelow', 'dots', 'wob', 'wobS', 'rough', 'vari', 'hair', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+for (const n of ['toneT', 'flowT', 'depT', 'depPrevT', 'hasDepth', 'bt', 'res', 'sp', 'angA', 'angX', 'l3', 'weight', 'flowAmt', 'dens', 'dw', 'minDash', 'taper', 'bend', 'subj', 'bgSp', 'bgAng', 'outline', 'wob', 'wobS', 'rough', 'vari', 'hair', 'minInk', 'pwhite', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-const tTone = mkTex(0), tDep = mkTex(1), tPrev = mkTex(2);
-gl.uniform1i(U.toneT, 0); gl.uniform1i(U.depT, 1); gl.uniform1i(U.depPrevT, 2);
+const tTone = mkTex(0), tDep = mkTex(1), tPrev = mkTex(2), tFlow = mkTex(3);
+gl.uniform1i(U.toneT, 0); gl.uniform1i(U.depT, 1); gl.uniform1i(U.depPrevT, 2); gl.uniform1i(U.flowT, 3);
 let uploadTone = false, pal = getPalette(), tDepth = 0;
 onPalette((p) => { pal = p; });
 function render() {
-  if (uploadTone) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tTone); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone); uploadTone = false; }
+  if (uploadTone) {
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tTone); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tFlow); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, flow); uploadTone = false;
+  }
   if (uploadDepth && M.have) {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tDep); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.out);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tPrev); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.prevOut);
@@ -225,13 +225,15 @@ function render() {
   gl.uniform1f(U.hasDepth, M.have ? 1 : 0);
   gl.uniform1f(U.bt, Math.min(1, (performance.now() - tDepth) / Math.max(60, M.interval)));
   gl.uniform2f(U.res, OW, OH);
-  gl.uniform1f(U.sp, num('ensp', 7)); gl.uniform1f(U.angA, num('ena', 0) * D);
-  gl.uniform1f(U.angX, offv('enx') ? 0 : P.enx * D);
-  gl.uniform1f(U.l2, offv('en2') ? 1 : P.en2); gl.uniform1f(U.l3, offv('en3') ? 1 : P.en3); gl.uniform1f(U.weight, num('enw', 1));
+  gl.uniform1f(U.sp, num('ensp', 13)); gl.uniform1f(U.angA, num('ena', 0) * D);
+  gl.uniform1f(U.angX, offv('enx') ? 0 : P.enx * D); gl.uniform1f(U.l3, offv('en3') ? 1 : P.en3); gl.uniform1f(U.weight, num('enw', 1));
+  gl.uniform1f(U.flowAmt, offv('enft') ? 0 : P.enft); gl.uniform1f(U.dens, offv('endn') ? 0 : P.endn);
+  gl.uniform1f(U.dw, offv('endw') ? 0.001 : P.endw); gl.uniform1f(U.minDash, num('enmd', 0.25)); gl.uniform1f(U.taper, offv('entp') ? 0 : P.entp);
   gl.uniform1f(U.bend, offv('enbd') ? 0 : P.enbd); gl.uniform1f(U.subj, offv('ensu') ? -1 : P.ensu);
   gl.uniform1f(U.bgSp, num('enbg', 1)); gl.uniform1f(U.bgAng, num('enba', 0) * D); gl.uniform1f(U.outline, offv('enol') ? 0 : P.enol);
-  gl.uniform1f(U.dashLen, offv('endl') ? 0 : P.endl); gl.uniform1f(U.dashBelow, offv('endt') ? 0 : P.endt); gl.uniform1f(U.dots, offv('endo') ? 0 : P.endo);
-  gl.uniform1f(U.wob, offv('enwb') ? 0 : P.enwb); gl.uniform1f(U.wobS, num('enws', 120)); gl.uniform1f(U.rough, offv('enr') ? 0 : P.enr); gl.uniform1f(U.vari, offv('env') ? 0 : P.env); gl.uniform1f(U.hair, offv('enh') ? 0 : P.enh); gl.uniform1f(U.minInk, offv('enmi') ? 0 : P.enmi); gl.uniform1f(U.pwhite, offv('enpw') ? 1.01 : P.enpw);
+  gl.uniform1f(U.wob, offv('enwb') ? 0 : P.enwb); gl.uniform1f(U.wobS, num('enws', 140)); gl.uniform1f(U.rough, offv('enr') ? 0 : P.enr);
+  gl.uniform1f(U.vari, offv('env') ? 0 : P.env); gl.uniform1f(U.hair, offv('enh') ? 0 : P.enh);
+  gl.uniform1f(U.minInk, offv('enmi') ? 0 : P.enmi); gl.uniform1f(U.pwhite, offv('enpw') ? 1.01 : P.enpw);
   gl.uniform3fv(U.ink, r(pal.cols[0])); gl.uniform3fv(U.paper, r(pal.paper));
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
@@ -264,7 +266,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#restart').onclick = () => { M.sm = null; M.have = false; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r1');
+initDefaults('.r2');                                       // r2: slider set rebuilt from the $100 measurements (v1.81)
 
 window.__state = { M, P, val, tone };
 DM.load();
