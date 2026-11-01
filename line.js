@@ -1,6 +1,6 @@
 // Generative Art v002: V1 LINE only (WebGPU). Clean copy of the V1 engine from v001.
 // Video -> CLAHE darkness -> spacing field R -> differential growth -> draw.
-import { $, msg, hex, hold, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
+import { $, msg, hex, hold, getPalette, onPalette, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
 const SW = 540, SH = 960, OW = 1080, OH = 1920, SCALE = 2, MAXN = 262144, MARGIN = 6;
 const CS = 4.16, GW = Math.floor(SW / CS) + 1, GH = Math.floor(SH / CS) + 1;
 const NGW = 70, NGH = 121;                 // low-res noise grid (8 sim px per cell)
@@ -867,8 +867,9 @@ function loop() {
 }
 
 // ---------------------------------------------------------------- UI
-$('#fg').oninput = (e) => { P.fg = hex(e.target.value); hold.poke(); };
-$('#bg').oninput = (e) => { P.bgc = hex(e.target.value); hold.poke(); };
+// colours: the universal palette (Edit > Colours): the line is the dark colour, the background is the paper
+const usePalette = (p) => { P.fg = p.cols[0]; P.bgc = p.paper; hold.poke(); };
+usePalette(getPalette()); onPalette(usePalette);
 $('#subject').onchange = async (e) => { P.subject = parseInt(e.target.value); if (P.subject) await loadSegmenter(); sim.boost = 8; };
 $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };

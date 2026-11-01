@@ -3,8 +3,7 @@
 // VALUE (how dark the circle is), HUE (figure hue vs ground hue), SIZE (with edge detail). Every number that shapes the look is a slider.
 // Every circle eases to its size and colour (smooth damp: slow start, slow end), nothing pops.
 // Circles that get squeezed shrink away, gaps get new circles that grow in from zero.
-import { $, hold, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
-import { createWheel, colRGB, colHex, hexToCol } from './colorwheel.js';
+import { $, hold, vid, cam, getPalette, onPalette, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
 
 const SW = 540, SH = 960, SCALE = 2;          // circle space (sim px), canvas is 2x
 const FW = 135, FH = 240;                     // tone field, 4 sim px per cell
@@ -69,25 +68,11 @@ function curve(t, c, m) {
   return clamp01((1 / (1 + Math.exp(-(t - m) * c)) - s0) / (s1 - s0));
 }
 
-// ---------------------------------------------------------------- colours: 2 or 3 picked on the colour wheel (Edit > Colours), plus paper
-// colour 1 = dark areas, last colour = light areas, the middle one (3 colours) = the tones between. Presets load into the wheel.
-const PRESETS = {
-  classic: { cols: ['#c4471f', '#e9953a', '#93b04e'], paper: '#f7f2e8' },
-  pastel: { cols: ['#c9608a', '#e3a4bf', '#86a9d6'], paper: '#f8f5f1' },
-  blueorange: { cols: ['#e07a2c', '#e8c26a', '#3f7fc4'], paper: '#f6f3ee' },
-  bw: { cols: ['#1e1e1e', '#7a7a7a', '#cfcfcf'], paper: '#f7f6f4' },
-  red: { cols: ['#a8200f', '#e0573c', '#f3b2a2'], paper: '#fbf8f6' },
-};
-const COL = { n: 2, rule: 'custom', base: 0, cols: [], paper: '#f7f2e8' };
-function loadPreset(name) {
-  const pr = PRESETS[name] || PRESETS.classic;
-  const [d, m, l] = pr.cols.map(hexToCol);                   // presets list dark, middle, light; 2 colours = dark + light (middle kept as the spare)
-  COL.cols = COL.n === 3 ? [d, m, l] : [d, l, m]; COL.paper = pr.paper; COL.rule = 'custom'; COL.base = 0;
-}
-loadPreset('classic');
+// ---------------------------------------------------------------- colours: the universal palette (Edit > Colours, css/main.css)
+// colour 1 = dark areas, last colour = light areas, the middle one (3 colours) = the tones between.
 let colRGBs = [];                                             // the active colours as [r, g, b]
-const syncCols = () => { colRGBs = COL.cols.slice(0, COL.n).map(colRGB); };
-syncCols();
+let paperHex = '#f7f2e8';
+const usePalette = (p) => { colRGBs = p.cols; paperHex = p.paperHex; dirty = true; };
 function hsl2rgb(h, s, l) {
   h = ((h % 360) + 360) % 360 / 360;
   const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
@@ -368,7 +353,7 @@ function draw() {
     ctx.imageSmoothingEnabled = true; ctx.drawImage(pv, 0, 0, canvas.width, canvas.height);
     return;
   }
-  ctx.fillStyle = COL.paper; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = paperHex; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
   const buckets = new Map(), wa = e.wig, wt = performance.now() / 1000 * e.wigs * Math.PI * 2;
   for (let i = 0; i < C.n; i++) {
@@ -418,20 +403,12 @@ function loop() {
 canvas.width = SW * SCALE; canvas.height = SH * SCALE;
 $('#settings').addEventListener('input', () => { dirty = true; }, true);   // a paused video still follows every control
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
-// colour wheel: edits land in COL; the hidden #ihcols field carries them into Set default
-const colsField = $('#ihcols');
-const saveCols = () => { colsField.value = JSON.stringify({ n: COL.n, rule: COL.rule, base: COL.base, paper: COL.paper, cols: COL.cols.map(colHex) }); };
-const wheel = createWheel($('#ihwheel'), COL, () => { syncCols(); saveCols(); });
-colsField.addEventListener('input', () => {                   // Set default restores the colours through this field
-  try { const o = JSON.parse(colsField.value); Object.assign(COL, { n: o.n, rule: o.rule, base: o.base, paper: o.paper, cols: o.cols.map(hexToCol) }); syncCols(); wheel.refresh(); } catch {}
-});
-$('#ihpal').onchange = (e) => { loadPreset(e.target.value); syncCols(); saveCols(); wheel.refresh(); };
-saveCols();
+usePalette(getPalette()); onPalette(usePalette);
 $('#ihinv').onchange = (e) => { P.inv = e.target.checked; dirty = true; };
 $('#ihprev').onchange = (e) => { P.prev = e.target.checked; };
 $('#restart').onclick = () => { C.n = 0; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r4');                                       // r4: colours moved to the colour wheel in v1.40, older saved defaults are dropped
+initDefaults('.r4');                                       // r4 (v1.40); since v1.50 the colours are the universal palette, saved with every default
 
 window.__state = { C, P, eff, base, edge, fieldInfo, st };
 requestAnimationFrame(loop);

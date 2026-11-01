@@ -1,5 +1,7 @@
 // Shared UI for every version: version buttons, Settings panel, slider rows (value, max field, -1 box),
-// slider hold, camera / video source, Set default, version check.
+// slider hold, camera / video source, colours (palette.js), owner PIN + defaults, version check.
+import { mountPaletteEditor, serialize as serializePalette, restore as restorePalette } from './palette.js';
+export { getPalette, onPalette } from './palette.js';
 export const $ = (s) => document.querySelector(s);
 export const msg = (m) => { $('#msg').textContent = m; };
 export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -8,6 +10,7 @@ export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 export const VERSIONS = [
   { id: 'line', label: 'V1 Line' },
   { id: 'ishihara', label: 'Ishihara' },
+  { id: 'depth', label: 'Depth' },
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
@@ -139,8 +142,43 @@ export function drawCover(c, w, h) {
   return { sx, sy, sw, sh, vw, vh, mir };
 }
 
-// ---------------------------------------------------------------- defaults (per version)
-// Saves every slider (value, max, on) and every [data-save] control of this version.
+// ---------------------------------------------------------------- colours (one palette for every style)
+mountPaletteEditor($('#palette'));
+
+// ---------------------------------------------------------------- owner PIN
+// Saving defaults is hidden behind a 4 digit PIN: click the version line at the bottom of the page (click it again to lock).
+// (A light lock for a static site: it keeps the save buttons out of sight, it is not real security.)
+const PIN_HASH = 2522906;                                     // hash of the PIN, so the digits are not in the source as text
+const hashPin = (s) => [...s].reduce((h, c) => (h * 131 + c.charCodeAt(0)) % 9999991, 7);
+const PINKEY = 'genArt002.owner';
+export const owner = { on: (() => { try { return localStorage.getItem(PINKEY) === '1'; } catch { return false; } })() };   // remembered on this device
+function showOwner() { $('#ownerrow').hidden = !owner.on; }
+$('#ver').addEventListener('click', () => {
+  if (owner.on) { owner.on = false; try { localStorage.removeItem(PINKEY); } catch {} $('#ver').classList.remove('owner'); showOwner(); return; }   // click again: lock
+  const box = $('#pinbox'); box.hidden = !box.hidden; if (!box.hidden) { const i = box.querySelector('input'); i.value = ''; i.focus(); }
+});
+$('#pinbox input').addEventListener('input', (e) => {
+  const v = e.target.value.replace(/\D/g, '').slice(0, 4); e.target.value = v;
+  if (v.length < 4) return;
+  if (hashPin(v) === PIN_HASH) {
+    owner.on = true; try { localStorage.setItem(PINKEY, '1'); } catch {}
+    $('#pinbox').hidden = true; showOwner(); $('#ver').classList.add('owner');
+  } else { e.target.value = ''; e.target.classList.add('bad'); setTimeout(() => e.target.classList.remove('bad'), 500); }
+});
+showOwner(); if (owner.on) $('#ver').classList.add('owner');
+
+// ---------------------------------------------------------------- the palette: restored as the page loads, for every style
+const PALKEY = 'genArt002.palette';
+const SITE = fetch('site-defaults.json?t=' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+(async () => {
+  let pal = null; try { pal = JSON.parse(localStorage.getItem(PALKEY) || 'null'); } catch {}
+  if (!pal) { const site = await SITE; pal = site && site[PALKEY]; }
+  if (pal) restorePalette(pal);
+})();
+
+// ---------------------------------------------------------------- defaults (per version + the palette)
+// Owner only: Set default saves every slider (value, max, on), every [data-save] control of this version, and the palette.
+// Order of what applies on load: built-in values, then site-defaults.json (the site's defaults for every visitor), then this browser's saved defaults.
 export function initDefaults(rev = '') {
   const STORE = 'genArt002.defaults.' + VIEW + rev;
   const saveEls = () => [...document.querySelectorAll('[data-save]')].filter((el) => !el.closest('[hidden]'));
@@ -162,13 +200,26 @@ export function initDefaults(rev = '') {
       el.dispatchEvent(new Event(el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input'));
     }
   };
-  try { const sv = JSON.parse(localStorage.getItem(STORE) || 'null'); if (sv) apply(sv); } catch {}
+  const local = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+  (async () => {
+    const site = await SITE;
+    const v = local(STORE) || (site && site[STORE]);
+    if (v) apply(v);
+  })();
+  const flash = (el, t) => { const o = el.textContent; el.textContent = t; setTimeout(() => { el.textContent = o; }, 1600); };
   $('#setdef').onclick = () => {
-    try { localStorage.setItem(STORE, JSON.stringify(snapshot())); $('#setdef').textContent = 'Saved as default'; }
-    catch { $('#setdef').textContent = 'Could not save'; }
-    setTimeout(() => { $('#setdef').textContent = 'Set default'; }, 1600);
+    if (!owner.on) return;
+    try { localStorage.setItem(STORE, JSON.stringify(snapshot())); localStorage.setItem(PALKEY, JSON.stringify(serializePalette())); flash($('#setdef'), 'Saved as default'); }
+    catch { flash($('#setdef'), 'Could not save'); }
   };
-  $('#resetdef').onclick = () => { try { localStorage.removeItem(STORE); } catch {} location.reload(); };
+  $('#resetdef').onclick = () => { if (!owner.on) return; try { localStorage.removeItem(STORE); localStorage.removeItem(PALKEY); } catch {} location.reload(); };
+  // everything saved in this browser, as one JSON: send it to make it the site's defaults for every visitor (site-defaults.json)
+  $('#copydef').onclick = async () => {
+    if (!owner.on) return;
+    const all = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('genArt002.defaults.') || k === PALKEY) all[k] = JSON.parse(localStorage.getItem(k)); } } catch {}
+    try { await navigator.clipboard.writeText(JSON.stringify(all, null, 1)); flash($('#copydef'), 'Copied'); } catch { flash($('#copydef'), 'Copy failed'); }
+  };
 }
 
 // ---------------------------------------------------------------- version check
