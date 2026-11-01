@@ -18,41 +18,41 @@ import { createDepthModel, MODELS, OW, OH } from './depthmodel.js';
 // ---------------------------------------------------------------- sliders (-1 = off)
 const SLIDERS = [
   { head: 'Tone (contrast map)' },
-  { id: 'enlo', label: 'Levels clip %', min: 0, max: 20, step: 0.5, val: 1, off: 'raw video' },
-  { id: 'enl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 0.5, off: 'global tone only' },
+  { id: 'enlo', label: 'Levels clip %', min: 0, max: 20, step: 0.5, val: 2, off: 'raw video' },
+  { id: 'enl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 1.65, off: 'global tone only' },
   { id: 'enc', label: 'Contrast', min: 0.2, max: 4, step: 0.01, val: 1.1, off: '1' },
-  { id: 'enb', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
+  { id: 'enb', label: 'Brightness', min: -0.5, max: 0.5, step: 0.01, val: 0.13, off: '0' },
   { id: 'enmi', label: 'Minimum ink', min: 0, max: 0.4, step: 0.01, val: 0.05, off: 'bare paper in the light areas' },
-  { id: 'enpw', label: 'Paper white', min: 0.5, max: 1, step: 0.005, val: 0.985, off: 'no bare paper (1)' },
-  { id: 'ent', label: 'Tone smoothing', min: 0, max: 0.95, step: 0.01, val: 0.5, off: 'none' },
+  { id: 'enpw', label: 'Paper white', min: 0.5, max: 1, step: 0.005, val: 1, off: 'no bare paper (1)' },
+  { id: 'ent', label: 'Tone smoothing', min: 0, max: 0.95, step: 0.01, val: 0.44, off: 'none' },
   { head: 'Lines: one spacing, one thickness' },
-  { id: 'ensp', label: 'Line spacing px', min: 3, max: 40, step: 0.1, val: 13, off: '13' },
+  { id: 'ensp', label: 'Line spacing px', min: 3, max: 40, step: 0.1, val: 11.9, off: '13' },
   { id: 'ena', label: 'Angle deg', min: -90, max: 90, step: 0.5, val: 40, off: '0' },
   { id: 'enx', label: 'Cross angle deg', min: 20, max: 90, step: 0.5, val: 62, off: 'no cross lines' },
-  { id: 'endw', label: 'Line thickness', min: 0.08, max: 0.6, step: 0.01, val: 0.3, off: '0.3' },
-  { id: 'endo', label: 'Lozenge dots', min: 0, max: 1, step: 0.01, val: 0.8, off: 'no dots: cross lines are the darkest' },
+  { id: 'endw', label: 'Line thickness', min: 0.03, max: 0.6, step: 0.01, val: 0.08, off: '0.3' },
+  { id: 'endo', label: 'Lozenge dots', min: 0, max: 1, step: 0.01, val: 0.53, off: 'no dots: cross lines are the darkest' },
   { id: 'en3', label: 'Third lines from', min: 0.3, max: 1, step: 0.01, val: 0.95, off: 'never' },
   { head: 'Curves (spacing stays even)' },
-  { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 0.7, off: 'no bending by tone' },
-  { id: 'enfr', label: 'Flow smoothness px', min: 4, max: 160, step: 1, val: 48, off: '48' },
+  { id: 'enft', label: 'Flow with the light', min: 0, max: 30, step: 0.1, val: 0, off: 'no bending by tone' },
+  { id: 'enfr', label: 'Flow smoothness px', min: 4, max: 160, step: 1, val: 57, off: '48' },
   { id: 'endn', label: 'Denser in the darks', min: 0, max: 1.5, step: 0.01, val: 0, off: 'same spacing everywhere' },
   { head: 'Dashes (light areas)' },
   { id: 'enmd', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
-  { id: 'entp', label: 'Dash taper', min: 0, max: 1, step: 0.01, val: 0.85, off: 'square ends' },
+  { id: 'entp', label: 'Dash taper', min: 0, max: 1, step: 0.01, val: 0.62, off: 'square ends' },
   { head: 'Depth' },
-  { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 18, off: 'lowest' },
+  { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 37, off: 'lowest' },
   { id: 'dpw', label: 'Second model weight', min: 0, max: 1, step: 0.01, val: 0.5, off: 'first model only' },
-  { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' },
-  { id: 'enbd', label: 'Depth bends lines', min: 0, max: 40, step: 0.5, val: 4, off: 'straight lines' },
-  { id: 'ensu', label: 'Subject depth', min: 0, max: 1, step: 0.01, val: 0.45, off: 'no background split' },
+  { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.83, off: 'none' },
+  { id: 'enbd', label: 'Depth bends lines', min: 0, max: 40, step: 0.5, val: 5.5, off: 'straight lines' },
+  { id: 'ensu', label: 'Subject depth', min: 0, max: 1, step: 0.01, val: 0.42, off: 'no background split' },
   { id: 'enbg', label: 'Background spacing', min: 0.3, max: 3, step: 0.01, val: 0.85, off: 'same as subject' },
   { id: 'enba', label: 'Background angle', min: -90, max: 90, step: 0.5, val: 0, off: '0 (horizontal)' },
-  { id: 'enol', label: 'Outline', min: 0, max: 3, step: 0.05, val: 0.6, off: 'no outline' },
+  { id: 'enol', label: 'Outline', min: 0, max: 3, step: 0.05, val: 0, off: 'no outline' },
   { head: 'Organic' },
-  { id: 'enwb', label: 'Wobble px', min: 0, max: 6, step: 0.05, val: 0.7, off: 'ruler straight' },
-  { id: 'enws', label: 'Wobble scale px', min: 10, max: 400, step: 1, val: 140, off: '140' },
-  { id: 'enr', label: 'Ink roughness', min: 0, max: 1, step: 0.01, val: 0.3, off: 'clean edges' },
-  { id: 'env', label: 'Line weight variety', min: 0, max: 0.6, step: 0.01, val: 0.12, off: 'every line the same' },
+  { id: 'enwb', label: 'Wobble px', min: 0, max: 6, step: 0.05, val: 0.3, off: 'ruler straight' },
+  { id: 'enws', label: 'Wobble scale px', min: 10, max: 400, step: 1, val: 169, off: '140' },
+  { id: 'enr', label: 'Ink roughness', min: 0, max: 1, step: 0.01, val: 0.73, off: 'clean edges' },
+  { id: 'env', label: 'Line weight variety', min: 0, max: 0.6, step: 0.01, val: 0.08, off: 'every line the same' },
 ];
 const P = {};
 const val = buildSliders(SLIDERS, P);
@@ -273,7 +273,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#settings').addEventListener('change', () => { dirty = true; }, true);
 $('#restart').onclick = () => { M.sm = null; M.have = false; };
 cam.onStart = () => { lastMedia = -1; };
-initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83)
+initDefaults('.r4');                                       // r4: one spacing, one thickness: dashes -> lines -> cross lines -> dots (v1.83); defaults = Gerry's settings (v1.84)
 
 window.__state = { M, P, val, tone };
 DM.load();

@@ -149,26 +149,30 @@ export function drawCover(c, w, h) {
 mountPaletteEditor($('#palette'));
 
 // ---------------------------------------------------------------- owner PIN
-// Saving defaults is hidden behind a 4 digit PIN: click the version line at the bottom of the page (click it again to lock).
+// Saving defaults is hidden behind a 4 digit PIN: the Owner button at the bottom of Edit, or a click on the version line (Lock / click again to lock).
 // (A light lock for a static site: it keeps the save buttons out of sight, it is not real security.)
 const PIN_HASH = 2522906;                                     // hash of the PIN, so the digits are not in the source as text
 const hashPin = (s) => [...s].reduce((h, c) => (h * 131 + c.charCodeAt(0)) % 9999991, 7);
 const PINKEY = 'genArt002.owner';
 export const owner = { on: (() => { try { return localStorage.getItem(PINKEY) === '1'; } catch { return false; } })() };   // remembered on this device
-function showOwner() { $('#ownerrow').hidden = !owner.on; }
-$('#ver').addEventListener('click', () => {
-  if (owner.on) { owner.on = false; try { localStorage.removeItem(PINKEY); } catch {} $('#ver').classList.remove('owner'); showOwner(); return; }   // click again: lock
-  const box = $('#pinbox'); box.hidden = !box.hidden; if (!box.hidden) { const i = box.querySelector('input'); i.value = ''; i.focus(); }
-});
-$('#pinbox input').addEventListener('input', (e) => {
+function showOwner() {
+  $('#ownerrow').hidden = !owner.on; $('#ownerlock').hidden = owner.on; $('#ver').classList.toggle('owner', owner.on);
+}
+const lock = () => { owner.on = false; try { localStorage.removeItem(PINKEY); } catch {} showOwner(); };
+// two ways in: the version line under the buttons, or the Owner button at the bottom of Edit (on a phone the panel covers the line)
+const openPin = (box) => { box.hidden = !box.hidden; if (!box.hidden) { const i = box.querySelector('input'); i.value = ''; i.focus(); } };
+$('#ver').addEventListener('click', () => { if (owner.on) lock(); else openPin($('#pinbox')); });   // click again: lock
+$('#ownerbtn').addEventListener('click', () => openPin($('#pinbox2')));
+$('#lockbtn').addEventListener('click', lock);
+for (const box of document.querySelectorAll('.pinbox')) box.querySelector('input').addEventListener('input', (e) => {
   const v = e.target.value.replace(/\D/g, '').slice(0, 4); e.target.value = v;
   if (v.length < 4) return;
   if (hashPin(v) === PIN_HASH) {
     owner.on = true; try { localStorage.setItem(PINKEY, '1'); } catch {}
-    $('#pinbox').hidden = true; showOwner(); $('#ver').classList.add('owner');
+    document.querySelectorAll('.pinbox').forEach((b) => { b.hidden = true; }); showOwner();
   } else { e.target.value = ''; e.target.classList.add('bad'); setTimeout(() => e.target.classList.remove('bad'), 500); }
 });
-showOwner(); if (owner.on) $('#ver').classList.add('owner');
+showOwner();
 
 // ---------------------------------------------------------------- the palette: restored as the page loads, for every style
 const PALKEY = 'genArt002.palette';

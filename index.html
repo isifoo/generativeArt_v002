@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261102030000">
+<meta name="build" content="20261102040000">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<link rel="stylesheet" href="css/main.css?b=20261102030000">
+<link rel="stylesheet" href="css/main.css?b=20261102040000">
 </head>
 <body>
 <div id="app">
@@ -19,8 +19,8 @@
   <div id="side">
     <div class="row"><span class="row" id="versions"></span><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
-    <div id="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v1.83 (2026-11-02)</div>
+    <div id="pinbox" class="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
+    <div class="note" id="ver">Generative Art v002 · v1.84 (2026-11-02)</div>
   </div>
 </div>
 
@@ -45,10 +45,15 @@
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
   <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change. Colours apply to every style.</p>
+  <div class="row" id="ownerlock">
+    <button id="ownerbtn" type="button">Owner</button>
+    <span class="pinbox" id="pinbox2" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></span>
+  </div>
   <div class="row" id="ownerrow" hidden>
     <button id="setdef" type="button">Set default</button>
     <button id="resetdef" type="button">Reset defaults</button>
     <button id="copydef" type="button">Copy settings</button>
+    <button id="lockbtn" type="button">Lock</button>
   </div>
   <h2 style="margin-top:14px">Render time (measured on this device)</h2>
   <div class="bar"><i id="budget"></i></div>

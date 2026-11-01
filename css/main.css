@@ -85,6 +85,6 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 /* ---------------------------------------------------------------- owner PIN (click the version line) */
 #ver { cursor:default; user-select:none; }
 #ver.owner::after { content:' · owner'; color:var(--accent); }
-#pinbox input { width:76px; text-align:center; letter-spacing:.4em; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px; font:inherit; }
-#pinbox input.bad { border-color:var(--accent); animation:shake .3s; }
+#pinbox input, .pinbox input { width:76px; text-align:center; letter-spacing:.4em; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px; font:inherit; }
+.pinbox input.bad { border-color:var(--accent); animation:shake .3s; }
 @keyframes shake { 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
