@@ -298,7 +298,8 @@ function render() {
   gl.uniform1f(U.wob, offv('enwb') ? 0 : P.enwb); gl.uniform1f(U.wobS, num('enws', 140)); gl.uniform1f(U.rough, offv('enr') ? 0 : P.enr);
   gl.uniform1f(U.vari, offv('env') ? 0 : P.env);
   gl.uniform1f(U.minInk, offv('enmi') ? 0 : P.enmi); gl.uniform1f(U.pwhite, offv('enpw') ? 1.01 : P.enpw);
-  gl.uniform3fv(U.ink, r(pal.cols[0])); gl.uniform3fv(U.paper, r(pal.paper));
+  const usePal = $('#e2pal').checked;                         // black ink on white paper unless the palette is asked for
+  gl.uniform3fv(U.ink, usePal ? r(pal.cols[0]) : [0.07, 0.07, 0.07]); gl.uniform3fv(U.paper, usePal ? r(pal.paper) : [1, 1, 1]);
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
