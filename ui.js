@@ -69,13 +69,20 @@ export function buildSliders(list, P) {
   return (id) => (P.on[id] ? P[id] : -1);              // val(id): the value, or -1 when off
 }
 
-// ---------------------------------------------------------------- Edit button (closed by default: clean for viewing)
+// ---------------------------------------------------------------- Edit button (closed by default: clean for viewing; the panel slides in)
 const UIKEY = 'genArt002.ui';
+// when editing, the portrait glides to the left edge so the panel has room (on narrow screens the panel just covers it)
+const shift = () => {
+  const st = $('#stage'), w = st.offsetWidth, panel = $('#settings').offsetWidth;
+  const left = (innerWidth - w) / 2, room = innerWidth - panel - 48;
+  document.body.style.setProperty('--shift', (w <= room ? 16 - left : 0) + 'px');
+};
+addEventListener('resize', shift);
 const setOpen = (open) => {
-  $('#settings').hidden = !open; $('#setbtn').classList.toggle('on', open);
+  shift(); document.body.classList.toggle('editing', open); $('#setbtn').classList.toggle('on', open);
   try { localStorage.setItem(UIKEY, open ? '1' : '0'); } catch {}
 };
-$('#setbtn').onclick = () => setOpen($('#settings').hidden);
+$('#setbtn').onclick = () => setOpen(!document.body.classList.contains('editing'));
 $('#setclose').onclick = () => setOpen(false);
 setOpen((() => { try { return localStorage.getItem(UIKEY) === '1'; } catch { return false; } })());
 
