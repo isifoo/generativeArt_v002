@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261101180000">
-<link rel="stylesheet" href="css/main.css?b=20261101180000">
+<meta name="build" content="20261101200000">
+<link rel="stylesheet" href="css/main.css?b=20261101200000">
 </head>
 <body>
 <div id="app">
@@ -19,7 +19,7 @@
     <div class="row"><span class="row" id="versions"></span><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
     <div id="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v1.52 (2026-11-01)</div>
+    <div class="note" id="ver">Generative Art v002 · v1.60 (2026-11-01)</div>
   </div>
 </div>
 
@@ -36,8 +36,9 @@
   <h2 class="grp" style="margin:12px 0 6px">Colours (every style)</h2>
   <div id="palette"></div>
   <div class="ctl" data-views="depth"><span>Look</span><select id="dpmode" data-save><option value="grey" selected>Grey (near = white)</option><option value="palnear">Palette (near = dark colour)</option><option value="palfar">Palette (near = light colour)</option></select></div>
-  <div class="ctl" data-views="ishihara"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (bright video = dark circles)</label></div>
-  <div class="ctl" data-views="ishihara"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
+  <div class="ctl" data-views="depthdots"><span>Depth drives</span><select id="ddmode" data-save><option value="size" selected>Size (one colour, near = big)</option><option value="colour">Colour (palette, random sizes)</option></select></div>
+  <div class="ctl" data-views="ishihara,depthdots"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (ishihara: bright video = dark circles; depth dots: far = big / far = first colour)</label></div>
+  <div class="ctl" data-views="ishihara,depthdots"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
   <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change. Colours apply to every style.</p>
@@ -53,7 +54,7 @@
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
   const v = new URLSearchParams(location.search).get('view');
-  import(({ ishihara: './ishihara.js', depth: './depth.js' }[v] || './line.js') + '?b=' + b);
+  import(({ ishihara: './ishihara.js', depthdots: './ishihara.js', depth: './depth.js' }[v] || './line.js') + '?b=' + b);
 </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 # Generative Art v002
 
-Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D) and Depth (Depth Anything V2 Small depth map, WebGL2 look).
+Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look) and Depth Dots (the Ishihara packing driven by the depth map).
 
 - Live: https://isifoo.github.io/generativeArt_v002/
 - Settings button opens the slider panel. Every slider has a max field and a -1 on/off box.
@@ -13,3 +13,5 @@ Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishi
 - Shared UI (version buttons, sliders, camera, defaults) is in `ui.js`.
 - Depth: `?view=depth`. Depth Anything V2 Small (fp16 ONNX, `vendor/`, onnxruntime-web on WebGPU, WASM fallback). Optional second model (`depth_anything_v1_small_fp16.onnx` in `vendor/`, used if present): runs on the same frame, is fitted (scale + offset) to the first and averaged in. After the model(s): near / far percentile range with slow follow, motion-aware time smoothing (still spots smooth hard, moving spots follow), a crossfade between consecutive maps on the GPU, shape detail (edge-aware local depth contrast, no halos), joint bilateral upsampling guided by the video (edges follow real outlines), video detail, depth curve, contrast, colour steps; grey or the palette.
 - Owner PIN: Set default / Reset defaults / Copy settings are hidden. Click the version line under the buttons and type the PIN (remembered on that device; click the line again to lock). Saved defaults live in that browser. `site-defaults.json` (optional, same shape as Copy settings) gives every visitor the defaults.
+- Depth model code is shared: `depthmodel.js` (`createDepthModel(opt, onMap)`), used by Depth and Depth Dots.
+- Depth Dots: `?view=depthdots`, runs in `ishihara.js` with the depth map as the field. Edit > Depth drives: Size (one colour, the dark colour; near = big) or Colour (palette by depth; random sizes). No wiggle; circles settle 1.5 s after a change and then stay still (no repacking churn, no new filler dots).

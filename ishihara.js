@@ -3,14 +3,19 @@
 // VALUE (how dark the circle is), HUE (figure hue vs ground hue), SIZE (with edge detail). Every number that shapes the look is a slider.
 // Every circle eases to its size and colour (smooth damp: slow start, slow end), nothing pops.
 // Circles that get squeezed shrink away, gaps get new circles that grow in from zero.
-import { $, hold, vid, cam, getPalette, onPalette, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
+import { $, msg, hold, vid, cam, VIEW, getPalette, onPalette, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
+import { createDepthModel, MODELS } from './depthmodel.js';
+
+// DEPTH DOTS (?view=depthdots) is this same engine with the depth model as the source instead of the video's brightness:
+// mode 'size': one colour, depth drives the dot size (near = big). Mode 'colour': random sizes, depth drives the palette colour.
+const DD = VIEW === 'depthdots';
 
 const SW = 540, SH = 960, SCALE = 2;          // circle space (sim px), canvas is 2x
 const FW = 135, FH = 240;                     // tone field, 4 sim px per cell
 const CAP = 30000;
 
 // ---------------------------------------------------------------- sliders (-1 = off)
-const SLIDERS = [
+const SLIDERS_ISHIHARA = [
   { head: 'Contrast (the base tone from the video)' },
   { id: 'ihlo', label: 'Levels clip %', min: 0, max: 20, step: 0.5, val: 1, off: 'no auto levels: raw video' },
   { id: 'ihl', label: 'Local contrast', min: 0, max: 4, step: 0.05, val: 1.6, off: 'global tone only' },
@@ -44,7 +49,36 @@ const SLIDERS = [
   { id: 'ihws', label: 'Wiggle speed', min: 0, max: 3, step: 0.05, val: 0.5, off: 'still' },
   { id: 'ihhy', label: 'Change threshold', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no hold: follows every change' },
 ];
-const P = { pal: 'classic', inv: false, prev: false };
+const SLIDERS_DD = [
+  { head: 'Depth model' },
+  { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 18, off: 'lowest (12 = 168 px)' },
+  { id: 'dpw', label: 'Second model weight', min: 0, max: 1, step: 0.01, val: 0.5, off: 'first model only' },
+  { id: 'dpn', label: 'Near clip %', min: 0, max: 20, step: 0.1, val: 0.5, off: 'no clip' },
+  { id: 'dpf', label: 'Far clip %', min: 0, max: 40, step: 0.5, val: 4, off: 'no clip' },
+  { id: 'dpl', label: 'Shape detail', min: 0, max: 6, step: 0.05, val: 2, off: 'flat: only the overall depth' },
+  { id: 'dps', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' },
+  { id: 'dpm', label: 'Motion follow', min: 0, max: 1, step: 0.01, val: 0.7, off: 'same smoothing everywhere' },
+  { head: 'Depth to dots' },
+  { id: 'ihc', label: 'Depth contrast', min: 1, max: 30, step: 0.5, val: 4, off: 'linear, no curve' },
+  { id: 'ihth', label: 'Depth shift', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
+  { head: 'Size' },
+  { id: 'ihmax', label: 'Max circle px', min: 4, max: 40, step: 0.5, val: 13, off: 'all circles min size' },
+  { id: 'ihmin', label: 'Min circle px', min: 1.5, max: 12, step: 0.25, val: 2.5, off: 'all circles max size' },
+  { id: 'ihsr', label: 'Size randomness', min: 0, max: 1, step: 0.01, val: 0.2, off: 'no randomness' },
+  { head: 'Colour' },
+  { id: 'ihv', label: 'Value variety %', min: 0, max: 20, step: 0.5, val: 3, off: 'flat values' },
+  { id: 'ihhj', label: 'Hue variety deg', min: 0, max: 40, step: 1, val: 4, off: 'one hue' },
+  { head: 'Spacing (distance between circles)' },
+  { id: 'ihg', label: 'Gap px', min: 0, max: 20, step: 0.1, val: 0.3, off: 'circles touch' },
+  { id: 'ihfl', label: 'Fill holes', min: 0, max: 1, step: 0.01, val: 1, off: 'no filler dots, only normal circles' },
+  { head: 'Motion (speed of change)' },
+  { id: 'ihe', label: 'Colour ease s', min: 0.05, max: 4, step: 0.05, val: 0.5, off: 'instant' },
+  { id: 'ihse', label: 'Size ease s', min: 0.05, max: 4, step: 0.05, val: 0.6, off: 'instant' },
+  { id: 'ihrp', label: 'Repack speed', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no repacking (sizes only shrink / fill)' },
+  { id: 'ihhy', label: 'Change threshold', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no hold: follows every change' },
+];
+const SLIDERS = DD ? SLIDERS_DD : SLIDERS_ISHIHARA;
+const P = { pal: 'classic', inv: false, prev: false, ddmode: 'size' };
 const val = buildSliders(SLIDERS, P);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 function eff() {
@@ -132,6 +166,7 @@ function boxBlur(src, dst, r) {                               // separable box b
   }
 }
 function updateField() {
+  sinceChange = 0;
   const t0 = performance.now(), e = eff();
   drawCover(fctx, FW, FH);
   const d = fctx.getImageData(0, 0, FW, FH).data, hist = new Uint32Array(256);
@@ -171,11 +206,13 @@ function sample(a, x, y) {
   return (a[i] * (1 - tx) + a[i + 1] * tx) * (1 - ty) + (a[i + FW] * (1 - tx) + a[i + FW + 1] * tx) * ty;
 }
 // the three drivers, from the base tone t (and edge for size)
-const valueOf = (t, e) => { let v = curve(t, e.vcon, fieldInfo.med); if (e.levels) v = Math.round(v * (e.levels - 1)) / (e.levels - 1); return P.inv ? 1 - v : v; };
-const hueOf = (t, e) => { const h = curve(t, e.hcon, e.hsplit); return P.inv ? 1 - h : h; };
+// DEPTH DOTS: t is depth (0 far .. 1 near). Size mode: one colour (the dark colour), near = big. Colour mode: palette by depth, random sizes.
+const ddT = (t, e) => curve(P.inv ? 1 - t : t, e.vcon, 0.5);
+const valueOf = DD ? () => 0.5 : (t, e) => { let v = curve(t, e.vcon, fieldInfo.med); if (e.levels) v = Math.round(v * (e.levels - 1)) / (e.levels - 1); return P.inv ? 1 - v : v; };
+const hueOf = DD ? (t, e) => (P.ddmode === 'colour' ? 1 - ddT(t, e) : 0) : (t, e) => { const h = curve(t, e.hcon, e.hsplit); return P.inv ? 1 - h : h; };
 // gap at a tone: + gap by darkness = light areas get more room, dark areas pack tighter (- = the other way)
 const gapAt = (t, e) => e.gap * Math.max(0, 1 + e.gdark * ((P.inv ? 1 - t : t) - 0.5) * 2);
-const sizeOf = (t, ed, e) => curve(Math.min(1, e.sizeDark * (1 - (P.inv ? 1 - t : t)) + e.sizeDetail * Math.min(1, ed * e.dsens)), e.scon, 0.5);
+const sizeOf = DD ? (t, ed, e) => (P.ddmode === 'colour' ? 0.5 : 1 - ddT(t, e)) : (t, ed, e) => curve(Math.min(1, e.sizeDark * (1 - (P.inv ? 1 - t : t)) + e.sizeDetail * Math.min(1, ed * e.dsens)), e.scon, 0.5);
 
 // ---------------------------------------------------------------- circles (structure of arrays)
 const C = {
@@ -184,13 +221,14 @@ const C = {
   rnd: new Float32Array(CAP), shade: new Uint8Array(CAP),
   die: new Uint8Array(CAP), press: new Uint8Array(CAP), rt: new Float32Array(CAP), want: new Float32Array(CAP),
   lv: new Float32Array(CAP), lh: new Float32Array(CAP), g: new Float32Array(CAP),   // g: this circle's gap
-  ph: new Float32Array(CAP),                                  // wiggle phase     // value / hue this circle is heading to (held, so no flicker)
+  ph: new Float32Array(CAP),                                  // wiggle phase
+  act: new Float32Array(CAP), wref: new Float32Array(CAP),    // settling: seconds a circle may still repack / squeeze, and the wished size that started it
 };
-const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh', 'g', 'ph'];
+const KEYS = ['x', 'y', 'r', 'rv', 'm', 'mv', 'h', 'hv', 'rnd', 'shade', 'die', 'press', 'rt', 'want', 'lv', 'lh', 'g', 'ph', 'act', 'wref'];
 // size: small where dark and detailed (more resolution), big where light and flat
 function targetR(i, x, y, e) {
   if (C.die[i]) return 0;
-  const k = sizeOf(sample(base, x, y), sample(edge, x, y), e);
+  const k = DD && P.ddmode === 'colour' ? C.rnd[i] : sizeOf(sample(base, x, y), sample(edge, x, y), e);   // depth dots, colour mode: sizes are random
   return (e.rmax + (e.rmin - e.rmax) * k) * (1 - e.srand + e.srand * C.rnd[i]);
 }
 // hold: a circle only changes its target when the video moved clearly past it (Change threshold)
@@ -230,7 +268,7 @@ function freeAt(x, y, gs, reach) {
 function addCircle(x, y, e) {
   if (C.n >= CAP) return;
   const i = C.n++;
-  C.x[i] = x; C.y[i] = y; C.r[i] = 0; C.rv[i] = 0; C.rnd[i] = Math.random(); C.ph[i] = Math.random() * 1000;
+  C.x[i] = x; C.y[i] = y; C.r[i] = 0; C.rv[i] = 0; C.rnd[i] = Math.random(); C.ph[i] = Math.random() * 1000; C.act[i] = SETTLE; C.wref[i] = 0;
   C.shade[i] = (Math.random() * SHADES) | 0; C.die[i] = 0; C.press[i] = 0;
   const t = fieldReady ? sample(base, x, y) : 0.5;
   C.lv[i] = C.m[i] = valueOf(t, e); C.lh[i] = C.h[i] = hueOf(t, e);   // new circles start in their colour and grow in from zero
@@ -242,6 +280,8 @@ function removeAt(i) {
 }
 
 // ---------------------------------------------------------------- one step
+const SETTLE = 1.5;                                           // seconds a circle keeps packing after a change (Depth Dots), then it stays still
+let sinceChange = 0;                                          // seconds since the field or a setting last changed
 const st = { spawned: 0, killed: 0, ms: 0, fps: 0 };
 function step(dt) {
   const t0 = performance.now(), e = eff(), gap = e.gap * (1 + Math.abs(e.gdark));   // gap: the largest gap anywhere (grid size)
@@ -268,7 +308,11 @@ function step(dt) {
           if (s < 1 && !C.die[j] && C.r[j] < nbr) { nbr = C.r[j]; nb = j; }   // smallest touching neighbour
         }
     // fill holes: push a little into the neighbours (the relaxation below moves them apart into the holes, like packing marbles)
-    const cap = ri + (space > 0 ? space * 0.5 : space) + (C.die[i] ? 0 : e.fill * (0.08 * ri + 0.15));
+    // settling (Depth Dots: no movement): a circle may repack (clear neighbours) and squeeze only for SETTLE seconds after its
+    // wished size really changed (or after it appeared). Then it accepts its place, so a still picture stays still.
+    if (Math.abs(want - C.wref[i]) > 0.12 * Math.max(want, C.wref[i], 0.5)) { C.wref[i] = want; C.act[i] = SETTLE; }
+    const active = !DD || C.act[i] > 0; C.act[i] = Math.max(0, C.act[i] - dt);   // Ishihara keeps squeezing (best fill, it moves anyway)
+    const cap = ri + (space > 0 ? space * 0.5 : space) + (C.die[i] || !active ? 0 : e.fill * (0.08 * ri + 0.15));
     // fill holes: a circle with free room around it grows into it (up to max size), so the paper closes up
     const grow = space > 0 ? Math.min(cap, want + (Math.max(want, e.rmax) - want) * e.fill) : want;
     const rt = C.die[i] ? 0 : Math.max(0, Math.min(grow, cap));
@@ -277,7 +321,7 @@ function step(dt) {
     const need = 1 - cap / Math.max(want, 1e-3), wait = rp > 0 && need > needAt ? waitN : 0;
     // a starved circle reserves its whole wished size, so new circles don't spawn into the room it is waiting for
     C.want[i] = C.die[i] ? 0 : wait ? want : Math.min(want, ri + Math.max(space, 0));
-    if (!C.die[i] && wait && ri > 0.5) {
+    if (!C.die[i] && wait && active && ri > 0.5) {
       if (++C.press[i] > wait && nb >= 0 && nbr <= ri && Math.random() < pKill) {
         // make room in one go: every smaller neighbour inside the wished size fades out together
         for (let gy = Math.max(0, cy - reach); gy <= Math.min(GY - 1, cy + reach); gy++)
@@ -321,7 +365,9 @@ function step(dt) {
   // 4. fill the gaps: new circles grow in from zero
   buildGrid(e.rmax, gap);
   // fill holes: down to tiny filler dots, so hardly any paper shows. Smallest dot = min circle (fill 0) .. 0.6 px (fill 1)
-  const fillMin = e.fill > 0 ? e.rmin * 0.9 + (0.6 - e.rmin * 0.9) * e.fill : e.rmin * 0.9;
+  // filler dots only while things are settling after a change (new field, slider); a settled picture gets no new pinhole dots
+  sinceChange += dt;
+  const fillMin = e.fill > 0 && (!DD || sinceChange < SETTLE * 2) ? e.rmin * 0.9 + (0.6 - e.rmin * 0.9) * e.fill : e.rmin * 0.9;
   const tries = C.n < 200 ? 6000 : 1200;
   for (let k = 0; k < tries; k++) {
     const x = Math.random() * SW, y = Math.random() * SH;
@@ -376,6 +422,15 @@ function draw() {
 // ---------------------------------------------------------------- stats
 function renderStats() {
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  if (DD) {
+    const M = DM.M;
+    $('#stats').innerHTML = row('circles', C.n.toLocaleString()) + row('CPU step (pack + ease)', st.ms.toFixed(2) + ' ms') +
+      row('models', M.sess.length > 1 && val('dpw') > 0 ? MODELS.slice(0, 2).map((m) => m.label).join(' + ') : MODELS[0].label) +
+      row('runs on', M.ready ? (M.ep === 'webgpu' ? 'GPU (WebGPU)' : 'processor (WASM, slow)') : M.loading ? 'loading...' : '-') +
+      row('model time per frame', M.ms.toFixed(1) + ' ms') + row('depth maps per second', M.fps.toFixed(1)) + row('frames per second', st.fps.toFixed(1));
+    $('#budget').style.width = Math.min(100, (st.ms + M.ms / 4) / 33.3 * 100) + '%';
+    return;
+  }
   $('#stats').innerHTML =
     row('circles', C.n.toLocaleString()) +
     row('CPU step (pack + ease)', st.ms.toFixed(2) + ' ms') +
@@ -387,13 +442,30 @@ function renderStats() {
 }
 setInterval(renderStats, 250);
 
+// ---------------------------------------------------------------- depth dots: depth map -> field
+const DM = DD ? createDepthModel((id, def) => (P.on[id] === undefined ? def : val(id)), () => { dirty = true; }) : null;
+function depthField() {
+  sinceChange = 0;
+  const t0 = performance.now(), { out, w, h } = DM.M, sh = P.on.ihth ? P.ihth : 0;
+  for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {               // bilinear resample to the field
+    const fx = Math.min(w - 1.001, Math.max(0, (x + 0.5) / FW * w - 0.5)), fy = Math.min(h - 1.001, Math.max(0, (y + 0.5) / FH * h - 0.5));
+    const x0 = fx | 0, y0 = fy | 0, tx = fx - x0, ty = fy - y0, i = y0 * w + x0;
+    const v = (out[i] * (1 - tx) + out[i + 1] * tx) * (1 - ty) + (out[i + w] * (1 - tx) + out[i + w + 1] * tx) * ty;
+    base[y * FW + x] = clamp01(v + sh); edge[y * FW + x] = 0;
+  }
+  fieldReady = true; dirty = false; fieldInfo.ms = performance.now() - t0;
+}
+
 // ---------------------------------------------------------------- loop
 let lastMedia = -1, lastT = performance.now();
 function loop() {
   requestAnimationFrame(loop);
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (dt > 0) st.fps = st.fps ? st.fps * 0.9 + 0.1 / dt : 1 / dt;
-  if (vid.readyState >= 2 && (vid.currentTime !== lastMedia || dirty)) { lastMedia = vid.currentTime; updateField(); }
+  if (DD) {                                                   // depth dots: the depth model feeds the field
+    if (vid.readyState >= 2 && vid.videoWidth) { const fresh = vid.currentTime !== lastMedia; lastMedia = vid.currentTime; if (DM.M.ready && !DM.M.busy && (fresh || !DM.M.have)) DM.infer(); }
+    if (DM.M.have && dirty) depthField();
+  } else if (vid.readyState >= 2 && (vid.currentTime !== lastMedia || dirty)) { lastMedia = vid.currentTime; updateField(); }
   if (!fieldReady) return;
   step(dt);
   draw();
@@ -406,11 +478,13 @@ $('#settings').addEventListener('change', () => { dirty = true; }, true);
 usePalette(getPalette()); onPalette(usePalette);
 $('#ihinv').onchange = (e) => { P.inv = e.target.checked; dirty = true; };
 $('#ihprev').onchange = (e) => { P.prev = e.target.checked; };
+if (DD) $('#ddmode').onchange = (e) => { P.ddmode = e.target.value; dirty = true; };
 $('#restart').onclick = () => { C.n = 0; };
 cam.onStart = () => { lastMedia = -1; };
 initDefaults('.r4');                                       // r4 (v1.40); since v1.50 the colours are the universal palette, saved with every default
 
-window.__state = { C, P, eff, base, edge, fieldInfo, st };
+window.__state = { C, P, eff, base, edge, fieldInfo, st, DM };
+if (DD) DM.load();
 requestAnimationFrame(loop);
 versionCheck();
 if (!noCam) await startCamera();

@@ -4,7 +4,12 @@
 import { createWheel, colRGB, colHex, hexToCol } from './colorwheel.js';
 
 const root = document.documentElement;
-const cssVar = (k) => getComputedStyle(root).getPropertyValue(k).trim();
+// defaults if the stylesheet has not loaded (or a variable is missing): the page still works
+const FALLBACK = { '--colors': '2', '--c1': '#c4471f', '--c2': '#e9953a', '--c3': '#93b04e', '--paper': '#f7f2e8', '--palette-rule': 'custom' };
+const cssVar = (k) => {
+  const v = getComputedStyle(root).getPropertyValue(k).trim();
+  return k.startsWith('--c') || k === '--paper' ? (/^#[0-9a-f]{6}$/i.test(v) ? v : FALLBACK[k]) : v || FALLBACK[k];
+};
 const hexRGB = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
 export const PRESETS = {                                      // dark, middle, light, paper
