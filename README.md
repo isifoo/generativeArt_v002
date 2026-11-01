@@ -1,6 +1,6 @@
 # Generative Art v002
 
-Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), Depth Dots (the Ishihara packing driven by the depth map) and Depth 3D (the depth map as a lit 3D surface, three.js).
+Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), Depth Dots (the Ishihara packing driven by the depth map) Depth 3D (the depth map as a lit 3D surface, three.js) and Dollar (banknote engraving, one pixel shader).
 
 - Live: https://isifoo.github.io/generativeArt_v002/
 - Settings button opens the slider panel. Every slider has a max field and a -1 on/off box.
@@ -16,3 +16,4 @@ Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishi
 - Depth model code is shared: `depthmodel.js` (`createDepthModel(opt, onMap)`), used by Depth and Depth Dots.
 - Depth Dots: `?view=depthdots`, runs in `ishihara.js` with the depth map as the field. Edit > Depth drives: Size (one colour, the dark colour; near = big) or Colour (palette by depth; random sizes). No wiggle; circles settle 1.5 s after a change and then stay still (no repacking churn, no new filler dots).
 - Depth 3D: `?view=depth3d` (`depth3d.js`, three.js 0.160 from jsdelivr via the importmap in `index.html`). A grid mesh pushed by depth (blended between depth maps, edge-keeping surface smoothing), key light + hemisphere fill + RoomEnvironment reflections, ACES tone mapping. Looks: video on the surface, white clay, palette by depth. Cut edges (off by default) removes cells across big depth jumps. Camera: turn, tilt, zoom, sway; drag to turn, double click to reset.
+- Dollar: `?view=dollar` (`engrave.js`). The engraver's rules as math, in one WebGL2 fragment shader: line families as phase fields (distance to the nearest line in px from |fract(phi+.5)-.5| / |grad phi|), tone = ink coverage of the line spacing (lines wider than the gaps leave white lines on black: the inversion happens by itself), layers (one family, crossing family from a tone, third family in the darkest), depth bends the lines around forms and splits subject / background (background: straight horizontal lines at their own spacing), dashes and dots in the light tones, a dot in each lozenge in the mid tones, wobble + ink bleed + per-line weight variety, outline at depth jumps, hairline minimum. Inputs: a tone map (CPU, 270 x 480) and the depth map. Ink = palette dark colour, paper = palette paper.

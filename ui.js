@@ -13,6 +13,7 @@ export const VERSIONS = [
   { id: 'depth', label: 'Depth' },
   { id: 'depthdots', label: 'Depth Dots' },
   { id: 'depth3d', label: 'Depth 3D' },
+  { id: 'dollar', label: 'Dollar' },
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
