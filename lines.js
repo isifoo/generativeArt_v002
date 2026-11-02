@@ -1,72 +1,56 @@
-// FRACTAL LINES: one layer of evenly spaced, parallel lines whose own shape is a gentle wave (not a labyrinth).
-// Line k sits where phi = k:  phi = (p . n + height * sin(2 pi * (p . t) / length + variation * fbm(p / length))) / spacing.
-// Every line has the same wave, so the distance between lines stays uniform; 'variation' lets the wave differ a little from
-// place to place (fractal noise on its phase), 'drift' moves it slowly. The width carries the tone (thick in the darks).
-import { createDepthModel } from './depthmodel.js';
-import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
+// FRACTAL LINES: two nodes, wired into the output.
+//  [Lines]  evenly spaced lines whose shape is a wave that turns over between the dark and light of the video (soft
+//           contrast), width by tone. The look is fixed (it works); the node only has Spacing, Width and Angle.
+//  [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes): Black Point, White Point, Black Softness,
+//           White Softness, Invert. Opaque = the lines show. With the defaults it is solid black and white, like a poster.
+//  [Out]    lines x alpha.
+// Click a node: the Edit panel shows that node's settings only.
+import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
 
 const OW = 1080, OH = 1920;
+// the fixed look of the lines (Gerry's settings, v2.00)
+const LOOK = { thin: 0, amp: 86.5, len: 1090, variation: 0.8, drift: 0.06, flip: 1, flipSoft: 90, con: 1.3, bri: 0, smooth: 0.6 };
+const SHAPE_PX = 16;                                       // the alpha's shapes are smoothed this much, so they are clean
 const SLIDERS = [
   { head: 'Lines' },
-  { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '9' },
-  { id: 'flw', label: 'Width px (darkest)', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
-  { id: 'flt', label: 'Thinnest (lights)', min: 0, max: 1, step: 0.01, val: 0, off: 'one width everywhere' },
+  { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
+  { id: 'flw', label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
   { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
-  { head: 'Wave (the shape of the lines)' },
-  { id: 'flam', label: 'Wave height px', min: 0, max: 200, step: 0.5, val: 86.5, off: 'straight lines' },
-  { id: 'flsc', label: 'Wave length px', min: 20, max: 3000, step: 5, val: 1090, off: '1000' },
-  { id: 'flcx', label: 'Variation', min: 0, max: 6, step: 0.05, val: 0.8, off: 'identical waves' },
-  { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0.06, off: 'still' },
-  { id: 'flfl', label: 'Flip with contrast', min: 0, max: 1, step: 0.01, val: 1, off: 'same wave everywhere' },
-  { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 90, off: '120' },
-  { head: 'Alpha node: Poster (solid black and white shapes)' },
-  { id: 'flmk', label: 'Alpha strength', min: 0, max: 1, step: 0.01, val: 1, off: 'no alpha: lines everywhere' },
-  { id: 'pslv', label: 'Levels', min: 2, max: 6, step: 1, val: 2, off: '2' },
-  { id: 'psct', label: 'Poster contrast', min: 0.2, max: 5, step: 0.01, val: 1.6, off: '1' },
-  { id: 'psth', label: 'Threshold', min: -0.5, max: 0.5, step: 0.01, val: 0, off: '0' },
-  { id: 'pssm', label: 'Shape smoothing px', min: 0, max: 120, step: 1, val: 16, off: 'raw shapes' },
-  { head: 'Alpha node: Dollar 1 Extract (as in AE)' },
-  { id: 'flbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'flwp', label: 'White Point', min: 0, max: 255, step: 1, val: 235, off: '255' },
-  { id: 'flbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'flws', label: 'White Softness', min: 0, max: 255, step: 1, val: 20, off: '0' },
-  { id: 'flmi', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
-  { id: 'flms', label: 'Mask blur px', min: 0, max: 64, step: 1, val: 10, off: 'crisp' },
-  { head: 'Tone' },
-  { id: 'flc', label: 'Contrast', min: 0.2, max: 5, step: 0.01, val: 1.3, off: '1' },
-  { id: 'flb', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
-  { id: 'fls', label: 'Smoothing', min: 0, max: 0.95, step: 0.01, val: 0.6, off: 'none' },
+  { head: 'Alpha (Extract)' },
+  { id: 'xbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 128, off: '255' },
+  { id: 'xbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'xws', label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'xinv', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
 ];
-const P = { pal: false };
-const val = buildSliders(SLIDERS, P);
+const P = {};
+buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
 
-// ---------------------------------------------------------------- tone (CPU, small and soft: the lines carry the detail)
+// ---------------------------------------------------------------- tone (CPU, small and soft)
 const TW = 180, TH = 320, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
-const tone = new Float32Array(TN).fill(1);
-// the flip map: a soft copy of the tone, so the wave turns over gently between dark and light instead of breaking at every edge
-const soft = new Float32Array(TN), stmp = new Float32Array(TN), poster = new Float32Array(TN);
-function softTone(r, dst = soft) {
-  const soft = dst; soft.set(tone);
+const tone = new Float32Array(TN).fill(1), soft = new Float32Array(TN), shape = new Float32Array(TN), stmp = new Float32Array(TN);
+function blurInto(dst, r) {
+  dst.set(tone);
   for (let pass = 0; pass < 2; pass++) {
     for (let y = 0; y < TH; y++) { let a = 0; const o = y * TW;
-      for (let x = -r; x <= r; x++) a += soft[o + Math.min(TW - 1, Math.max(0, x))];
-      for (let x = 0; x < TW; x++) { stmp[o + x] = a / (2 * r + 1); a += soft[o + Math.min(TW - 1, x + r + 1)] - soft[o + Math.max(0, x - r)]; } }
+      for (let x = -r; x <= r; x++) a += dst[o + Math.min(TW - 1, Math.max(0, x))];
+      for (let x = 0; x < TW; x++) { stmp[o + x] = a / (2 * r + 1); a += dst[o + Math.min(TW - 1, x + r + 1)] - dst[o + Math.max(0, x - r)]; } }
     for (let x = 0; x < TW; x++) { let a = 0;
       for (let y = -r; y <= r; y++) a += stmp[Math.min(TH - 1, Math.max(0, y)) * TW + x];
-      for (let y = 0; y < TH; y++) { soft[y * TW + x] = a / (2 * r + 1); a += stmp[Math.min(TH - 1, y + r + 1) * TW + x] - stmp[Math.max(0, y - r) * TW + x]; } }
+      for (let y = 0; y < TH; y++) { dst[y * TW + x] = a / (2 * r + 1); a += stmp[Math.min(TH - 1, y + r + 1) * TW + x] - stmp[Math.max(0, y - r) * TW + x]; } }
   }
 }
-let toneReady = false, dirty = true, upload = false;
+let toneReady = false, upload = false;
 function updateTone() {
   drawCover(tx, TW, TH);
-  const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady && !dirty ? 1 - num('fls', 0) : 1;
+  const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady ? 1 - LOOK.smooth : 1;
   for (let i = 0; i < TN; i++) tone[i] += ((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - tone[i]) * k;
-  softTone(Math.max(1, Math.round(num('flfs', 120) / (OW / TW) / 2)));
-  softTone(Math.max(1, Math.round(num('pssm', 16) / (OW / TW) / 2)), poster);   // Poster node: a smooth tone, cut into flat levels in the shader
-  toneReady = true; dirty = false; upload = true;
+  blurInto(soft, Math.max(1, Math.round(LOOK.flipSoft / (OW / TW) / 2)));
+  blurInto(shape, Math.max(1, Math.round(SHAPE_PX / (OW / TW) / 2)));
+  toneReady = true; upload = true;
 }
 
 // ---------------------------------------------------------------- shader
@@ -77,16 +61,11 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D toneT, softT;
-uniform sampler2D posterT;                               // Poster node: smooth tone, cut into flat levels here
-uniform float aSrc, pL, pCon, pTh;                       // alpha source: 0 none, 1 poster, 2 Dollar 1 extract
-uniform sampler2D maskT;                                 // Dollar 1's picture: its ink is the alpha of the lines
-uniform float mStr, mLod, bp, wp, bs, ws, minv;          // Extract: points and softness in 0..255
-uniform float flip;                                     // how much the wave turns over between dark (1) and light (0)
+uniform sampler2D toneT, softT, shapeT;
 uniform vec2 res;
-uniform float sp, wid, thin, ang, amp, scl, oct, evo, con, bri;   // amp = wave height px, scl = wave length px, oct = variation
-uniform vec3 ink, paper;
-// smooth value noise + fractal sum (octaves = complexity), drifting with evolution
+uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv;
+const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, VAR = ${LOOK.variation.toFixed(3)};
+const float FLIP = ${LOOK.flip.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
 float h21(vec2 q) { q = fract(q * vec2(127.1, 311.7)); q += dot(q, q + 34.53); return fract(q.x * q.y); }
 float vnoise(vec2 q) { vec2 i = floor(q), f = fract(q); f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
   return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
@@ -95,32 +74,24 @@ float fbm(vec2 q) { float s = 0.0, a = 0.5, n = 0.0;
   return s / n - 0.5; }
 void main() {
   vec2 px = uv * res;
+  // [Lines]
   vec2 t = vec2(cos(ang), -sin(ang)), nrm = vec2(-t.y, t.x);
-  float w = amp * sin(6.2831853 * dot(px, t) / scl + evo + oct * 6.2831853 * fbm(px / scl));   // the wave, in px
-  float sd = clamp((0.5 - texture(softT, uv).r) * 2.0 * con, -1.0, 1.0);   // soft contrast: +1 dark .. -1 light
-  w *= mix(1.0, sd, flip);                                            // the wave bends one way in the darks, the other way in the lights
+  float w = AMP * sin(6.2831853 * dot(px, t) / LEN + evo + VAR * 6.2831853 * fbm(px / LEN));
+  float sd = clamp((0.5 - texture(softT, uv).r) * 2.0 * CON, -1.0, 1.0);   // the wave turns over between dark and light
+  w *= mix(1.0, sd, FLIP);
   float phi = (dot(px, nrm) + w) / sp;
   float g = length(vec2(dFdx(phi), dFdy(phi))) + 1e-5;
-  float d = abs(fract(phi + 0.5) - 0.5) / g;                         // px to the nearest line centre
-  float tn = texture(toneT, uv).r;
-  float dk = clamp((0.5 - tn) * con + 0.5 - bri, 0.0, 1.0);          // darkness with contrast and brightness
-  float hw = 0.5 * wid * mix(thin, 1.0, dk);                        // width follows the darkness
+  float d = abs(fract(phi + 0.5) - 0.5) / g;
+  float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
+  float hw = 0.5 * wid * mix(THIN, 1.0, dk);
   float inkv = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
-  if (mStr > 0.0 && aSrc > 0.5 && aSrc < 1.5) {                     // Poster: flat levels, dark = lines visible
-    float pt = clamp((texture(posterT, uv).r - 0.5) * pCon + 0.5 + pTh, 0.0, 1.0) * (pL - 1.0);
-    float aa = fwidth(pt) + 1e-4, q = (floor(pt) + smoothstep(0.5 - aa, 0.5 + aa, fract(pt))) / (pL - 1.0);
-    inkv *= mix(1.0, 1.0 - q, mStr);
-  }
-  if (mStr > 0.0 && aSrc > 1.5) {                                    // alpha from Dollar 1: lines show only where it has ink
-    vec3 mc = textureLod(maskT, vec2(uv.x, 1.0 - uv.y), mLod).rgb;
-    // AE Extract (luminance): transparent below Black Point and above White Point, feathered by the softness values
-    float L = dot(mc, vec3(0.299, 0.587, 0.114)) * 255.0;
-    float lo = bs > 0.0 ? smoothstep(bp - bs, bp, L) : step(bp, L);
-    float hi = ws > 0.0 ? 1.0 - smoothstep(wp, wp + ws, L) : step(L, wp);
-    float a = lo * hi; if (minv > 0.5) a = 1.0 - a;
-    inkv *= mix(1.0, a, mStr);
-  }
-  o = vec4(mix(paper, ink, inkv), 1.0);
+  // [Alpha] AE Extract on the luminance: transparent below Black Point and above White Point, feathered by the softness
+  float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
+  float lo = smoothstep(bp - bs - aa, bp, L);
+  float hi = 1.0 - smoothstep(wp, wp + ws + aa, L);
+  float a = lo * hi; if (inv > 0.5) a = 1.0 - a;
+  if (useAlpha > 0.5) inkv *= a;
+  o = vec4(mix(vec3(1.0), vec3(0.07), inkv), 1.0);
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -135,111 +106,80 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'posterT', 'aSrc', 'pL', 'pCon', 'pTh', 'maskT', 'mStr', 'mLod', 'bp', 'wp', 'bs', 'ws', 'minv', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
-const tt = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.uniform1i(U.toneT, 0);
-const ts = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ts);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.uniform1i(U.softT, 1);
-const tm = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tm);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.uniform1i(U.maskT, 2);
-const tp = gl.createTexture(); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tp);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-gl.uniform1i(U.posterT, 3);
-let pal = getPalette(); onPalette((p) => { pal = p; });
+const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv']) U[n] = gl.getUniformLocation(pr, n);
+const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.uniform1i(U[name], unit); return t; };
+const T = { tone: tex(0, 'toneT'), soft: tex(1, 'softT'), shape: tex(2, 'shapeT') };
 let evoT = 0, lastT = performance.now();
-function render() {
-  const now = performance.now(); evoT += (now - lastT) / 1000 * num('flev', 0); lastT = now;
+function render(withAlpha = true) {
+  const now = performance.now(); evoT += (now - lastT) / 1000 * LOOK.drift; lastT = now;
   if (upload) {
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ts); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, soft);
-    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tp); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, poster); upload = false;
+    for (const [k, unit, arr] of [['tone', 0, tone], ['soft', 1, soft], ['shape', 2, shape]]) {
+      gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, T[k]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, arr);
+    }
+    upload = false;
   }
-  gl.uniform1f(U.flip, num('flfl', 0));
-  const src = { none: 0, poster: 1, dollar1: 2 }[$('#flsrc').value] ?? 1;
-  const mOn = P.on.flmk !== false && P.flmk > 0 && (src === 1 || (src === 2 && DM.M.have));
-  gl.uniform1f(U.mStr, mOn && !linesOnly ? P.flmk : 0); gl.uniform1f(U.aSrc, src);
-  gl.uniform1f(U.pL, Math.round(num('pslv', 2))); gl.uniform1f(U.pCon, num('psct', 1)); gl.uniform1f(U.pTh, num('psth', 0));
-  gl.uniform1f(U.bp, num('flbp', 0)); gl.uniform1f(U.wp, num('flwp', 255)); gl.uniform1f(U.bs, num('flbs', 0)); gl.uniform1f(U.ws, num('flws', 0)); gl.uniform1f(U.minv, num('flmi', 0));
-  gl.uniform1f(U.mLod, P.on.flms !== false && P.flms > 0 ? Math.log2(P.flms) : 0);
-  if (mOn && src === 2) {                                            // Dollar 1's frame -> mask texture (mipmaps = softness)
-    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tm);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas); gl.generateMipmap(gl.TEXTURE_2D);
-  }
-  const usePal = $('#e2pal').checked;
-  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 10)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.thin, num('flt', 1)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
-  gl.uniform1f(U.amp, num('flam', 0)); gl.uniform1f(U.scl, num('flsc', 520)); gl.uniform1f(U.oct, num('flcx', 0)); gl.uniform1f(U.evo, evoT * 6.2831853);
-  gl.uniform1f(U.con, num('flc', 1)); gl.uniform1f(U.bri, num('flb', 0));
-  gl.uniform3fv(U.ink, usePal ? pal.cols[0].map((x) => x / 255) : [0.07, 0.07, 0.07]); gl.uniform3fv(U.paper, usePal ? pal.paper.map((x) => x / 255) : [1, 1, 1]);
+  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 15)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
+  gl.uniform1f(U.evo, evoT * 6.2831853); gl.uniform1f(U.useAlpha, withAlpha ? 1 : 0);
+  gl.uniform1f(U.bp, num('xbp', 0)); gl.uniform1f(U.wp, num('xwp', 255)); gl.uniform1f(U.bs, num('xbs', 0)); gl.uniform1f(U.ws, num('xws', 0)); gl.uniform1f(U.inv, num('xinv', 0));
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
-// ---------------------------------------------------------------- loop
-let lastMedia = -1, lastDepth = -1;
-function loop() {
-  requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && (vid.currentTime !== lastMedia || dirty)) { lastMedia = vid.currentTime; updateTone(); }
-  if ($('#flsrc').value === 'dollar1' && !DM.M.ready && !DM.M.loading) DM.load();   // the depth model only when Dollar 1 is the alpha
-  if ($('#flsrc').value === 'dollar1' && vid.readyState >= 2 && DM.M.ready && !DM.M.busy && (!DM.M.have || vid.currentTime !== lastDepth)) { lastDepth = vid.currentTime; DM.infer(); }
-  if (toneReady) { render(); nodeThumbs(); }
-}
-$('#settings').addEventListener('input', () => { dirty = true; }, true);
-$('#restart').onclick = () => { evoT = 0; };
-cam.onStart = () => { lastMedia = -1; };
-setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-// the mask: Dollar 1 (Dollar's engraving shader) runs hidden into its own canvas, sharing our video and one depth model
-const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id === 'dpq' ? 37 : id === 'dps' ? 0.97 : def), () => {});   // Dollar 1's depth settings
-const maskCanvas = document.createElement('canvas');
-window.__dollarOverlay = { canvas: maskCanvas, dm: DM, on: () => $('#flsrc').value === 'dollar1' && P.on.flmk !== false && P.flmk > 0,
-  defaults: { enlo: 0, enl: 0, enc: 3.02, enb: 0.41 } };   // the mask is Dollar 1: same look (v2.04)
-await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
-// ---------------------------------------------------------------- nodes (Houdini style): live thumbnails + wires
-// [Fractal Lines] and [Alpha] feed [Out]. Click a node to open Edit at its sliders.
-let linesOnly = false, lastThumb = 0;
+// ---------------------------------------------------------------- nodes: live thumbnails, wires; click = that node's settings
 const nodeView = $('#nodes');
 nodeView.innerHTML = `<svg class="wires"><path id="w1"/><path id="w2"/></svg>
-  <div class="node" id="nLines" data-grp="Lines"><b>Fractal Lines</b><canvas width="90" height="160"></canvas></div>
-  <div class="node" id="nAlpha" data-grp="Alpha node"><b id="nAlphaT">Alpha: Poster</b><canvas width="90" height="160"></canvas></div>
+  <div class="node" id="nLines" data-grp="Lines"><b>Lines</b><canvas width="90" height="160"></canvas></div>
+  <div class="node" id="nAlpha" data-grp="Alpha (Extract)"><b>Alpha (Extract)</b><canvas width="90" height="160"></canvas></div>
   <div class="node out" id="nOut"><b>Out = lines x alpha</b><canvas width="90" height="160"></canvas></div>`;
 const thumb = (id) => $('#' + id + ' canvas').getContext('2d');
-const tcv = document.createElement('canvas'); tcv.width = TW; tcv.height = TH; const tcx = tcv.getContext('2d'), timg = tcx.createImageData(TW, TH);
+const acv = document.createElement('canvas'); acv.width = TW; acv.height = TH; const acx = acv.getContext('2d'), aimg = acx.createImageData(TW, TH);
+const ext = (L) => {                                       // the same Extract as the shader, for the thumbnail (black = lines show)
+  const bp = num('xbp', 0), wp = num('xwp', 255), bs = num('xbs', 0), ws = num('xws', 0);
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / Math.max(1e-3, b - a))); return t * t * (3 - 2 * t); };
+  const a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
+  return num('xinv', 0) > 0.5 ? 1 - a : a;
+};
+let lastThumb = 0;
 function nodeThumbs() {
   if (nodeView.hidden || performance.now() - lastThumb < 250) return; lastThumb = performance.now();
-  const src = $('#flsrc').value;
-  $('#nAlphaT').textContent = src === 'dollar1' ? 'Alpha: Dollar 1' : src === 'none' ? 'Alpha: off' : 'Alpha: Poster';
+  // keep the graph off the picture: while editing it sits in the free space right of the picture (if there is room)
+  const sr = $('#stage').getBoundingClientRect(), room = innerWidth - $('#settings').offsetWidth - 32 - sr.right;
+  nodeView.style.left = document.body.classList.contains('editing') && room > nodeView.offsetWidth + 16 ? (sr.right + 16) + 'px' : '';
   thumb('nOut').drawImage(canvas, 0, 0, 90, 160);
-  linesOnly = true; render(); thumb('nLines').drawImage(canvas, 0, 0, 90, 160); linesOnly = false; render();   // lines without the alpha
-  const a = thumb('nAlpha');
-  if (src === 'dollar1') { a.fillStyle = '#fff'; a.fillRect(0, 0, 90, 160); a.drawImage(maskCanvas, 0, 0, 90, 160); }
-  else {                                                     // the poster levels, as solid black and white
-    const L = Math.round(num('pslv', 2)), c = num('psct', 1), th = num('psth', 0);
-    for (let i = 0; i < TN; i++) {
-      const v = src === 'none' ? 1 : Math.round(Math.min(1, Math.max(0, (poster[i] - 0.5) * c + 0.5 + th)) * (L - 1)) / (L - 1);
-      timg.data[i * 4] = timg.data[i * 4 + 1] = timg.data[i * 4 + 2] = v * 255; timg.data[i * 4 + 3] = 255;
-    }
-    tcx.putImageData(timg, 0, 0); a.drawImage(tcv, 0, 0, 90, 160);
-  }
-  // wires from the two inputs to Out
-  const r = nodeView.getBoundingClientRect(), pt = (el, side) => { const b = el.getBoundingClientRect(); return [side ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
-  const o = pt($('#nOut'), 0);
-  for (const [w, n] of [['w1', 'nLines'], ['w2', 'nAlpha']]) { const p = pt($('#' + n), 1); $('#' + w).setAttribute('d', `M${p[0]},${p[1]} C${p[0] + 30},${p[1]} ${o[0] - 30},${o[1]} ${o[0]},${o[1]}`); }
+  render(false); thumb('nLines').drawImage(canvas, 0, 0, 90, 160); render(true);
+  for (let i = 0; i < TN; i++) { const v = (1 - ext(shape[i] * 255)) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
+  acx.putImageData(aimg, 0, 0); thumb('nAlpha').drawImage(acv, 0, 0, 90, 160);
+  const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
+  const o = pt($('#nOut'), false);
+  for (const [w, n] of [['w1', 'nLines'], ['w2', 'nAlpha']]) { const p = pt($('#' + n), true); $('#' + w).setAttribute('d', `M${p[0]},${p[1]} C${p[0] + 30},${p[1]} ${o[0] - 30},${o[1]} ${o[0]},${o[1]}`); }
 }
-for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.onclick = () => {
-  if (!document.body.classList.contains('editing')) $('#setbtn').click();
-  const h = [...document.querySelectorAll('#sliders h2.grp')].find((x) => x.textContent.startsWith(n.dataset.grp));
-  if (h) { if (h.classList.contains('closed')) h.click(); setTimeout(() => h.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350); }
-};
+// the Edit panel shows the selected node's sliders only
+document.body.classList.add('nodeedit');
+function selectNode(grp) {
+  for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = !h.textContent.startsWith(grp); }
+  $('#setHead').textContent = 'Edit: ' + grp;
+  for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.classList.toggle('sel', n.dataset.grp === grp);
+}
+for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.onclick = () => { selectNode(n.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
+selectNode('Lines');
 $('#nodebtn').onclick = () => { nodeView.hidden = !nodeView.hidden; $('#nodebtn').classList.toggle('on', !nodeView.hidden); try { localStorage.setItem('genArt002.nodes', nodeView.hidden ? '0' : '1'); } catch {} };
 nodeView.hidden = (() => { try { return localStorage.getItem('genArt002.nodes') === '0'; } catch { return false; } })();
 $('#nodebtn').classList.toggle('on', !nodeView.hidden);
-initDefaults('.r8');                                       // r8: Poster alpha node + node view (v2.06)                                       // r6: Dollar 1 mask with Dollar 1's look (v2.04)
-window.__state = { P, val, tone };
+
+// ---------------------------------------------------------------- loop
+let lastMedia = -1;
+function loop() {
+  requestAnimationFrame(loop);
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); }
+  if (toneReady) { render(); nodeThumbs(); }
+}
+$('#restart').onclick = () => { evoT = 0; };
+cam.onStart = () => { lastMedia = -1; };
+setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
+initDefaults('.r9');                                       // r9: two nodes, minimal sliders (v2.07)
+window.__state = { P, tone, shape };
 requestAnimationFrame(loop);
 versionCheck();
 if (!noCam) await startCamera();
