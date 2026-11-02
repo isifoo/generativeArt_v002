@@ -12,10 +12,12 @@ const SLIDERS = [
   { id: 'flt', label: 'Thinnest (lights)', min: 0, max: 1, step: 0.01, val: 0.08, off: 'one width everywhere' },
   { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: 0, off: '0' },
   { head: 'Wave (the shape of the lines)' },
-  { id: 'flam', label: 'Wave height px', min: 0, max: 80, step: 0.25, val: 4, off: 'straight lines' },
-  { id: 'flsc', label: 'Wave length px', min: 20, max: 2000, step: 5, val: 520, off: '520' },
+  { id: 'flam', label: 'Wave height px', min: 0, max: 200, step: 0.5, val: 80, off: 'straight lines' },
+  { id: 'flsc', label: 'Wave length px', min: 20, max: 3000, step: 5, val: 1000, off: '1000' },
   { id: 'flcx', label: 'Variation', min: 0, max: 6, step: 0.05, val: 0.8, off: 'identical waves' },
   { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0, off: 'still' },
+  { id: 'flfl', label: 'Flip with contrast', min: 0, max: 1, step: 0.01, val: 1, off: 'same wave everywhere' },
+  { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 120, off: '120' },
   { head: 'Tone' },
   { id: 'flc', label: 'Contrast', min: 0.2, max: 5, step: 0.01, val: 1.3, off: '1' },
   { id: 'flb', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
@@ -30,11 +32,25 @@ const TW = 180, TH = 320, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
 const tone = new Float32Array(TN).fill(1);
+// the flip map: a soft copy of the tone, so the wave turns over gently between dark and light instead of breaking at every edge
+const soft = new Float32Array(TN), stmp = new Float32Array(TN);
+function softTone(r) {
+  soft.set(tone);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < TH; y++) { let a = 0; const o = y * TW;
+      for (let x = -r; x <= r; x++) a += soft[o + Math.min(TW - 1, Math.max(0, x))];
+      for (let x = 0; x < TW; x++) { stmp[o + x] = a / (2 * r + 1); a += soft[o + Math.min(TW - 1, x + r + 1)] - soft[o + Math.max(0, x - r)]; } }
+    for (let x = 0; x < TW; x++) { let a = 0;
+      for (let y = -r; y <= r; y++) a += stmp[Math.min(TH - 1, Math.max(0, y)) * TW + x];
+      for (let y = 0; y < TH; y++) { soft[y * TW + x] = a / (2 * r + 1); a += stmp[Math.min(TH - 1, y + r + 1) * TW + x] - stmp[Math.max(0, y - r) * TW + x]; } }
+  }
+}
 let toneReady = false, dirty = true, upload = false;
 function updateTone() {
   drawCover(tx, TW, TH);
   const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady && !dirty ? 1 - num('fls', 0) : 1;
   for (let i = 0; i < TN; i++) tone[i] += ((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - tone[i]) * k;
+  softTone(Math.max(1, Math.round(num('flfs', 120) / (OW / TW) / 2)));
   toneReady = true; dirty = false; upload = true;
 }
 
@@ -46,7 +62,8 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D toneT;
+uniform sampler2D toneT, softT;
+uniform float flip;                                     // how much the wave turns over between dark (1) and light (0)
 uniform vec2 res;
 uniform float sp, wid, thin, ang, amp, scl, oct, evo, con, bri;   // amp = wave height px, scl = wave length px, oct = variation
 uniform vec3 ink, paper;
@@ -61,6 +78,8 @@ void main() {
   vec2 px = uv * res;
   vec2 t = vec2(cos(ang), -sin(ang)), nrm = vec2(-t.y, t.x);
   float w = amp * sin(6.2831853 * dot(px, t) / scl + evo + oct * 6.2831853 * fbm(px / scl));   // the wave, in px
+  float sd = clamp((0.5 - texture(softT, uv).r) * 2.0 * con, -1.0, 1.0);   // soft contrast: +1 dark .. -1 light
+  w *= mix(1.0, sd, flip);                                            // the wave bends one way in the darks, the other way in the lights
   float phi = (dot(px, nrm) + w) / sp;
   float g = length(vec2(dFdx(phi), dFdy(phi))) + 1e-5;
   float d = abs(fract(phi + 0.5) - 0.5) / g;                         // px to the nearest line centre
@@ -83,16 +102,24 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'softT', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const tt = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 gl.uniform1i(U.toneT, 0);
+const ts = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ts);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.uniform1i(U.softT, 1);
 let pal = getPalette(); onPalette((p) => { pal = p; });
 let evoT = 0, lastT = performance.now();
 function render() {
   const now = performance.now(); evoT += (now - lastT) / 1000 * num('flev', 0); lastT = now;
-  if (upload) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone); upload = false; }
+  if (upload) {
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ts); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, soft); upload = false;
+  }
+  gl.uniform1f(U.flip, num('flfl', 0));
   const usePal = $('#e2pal').checked;
   gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 10)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.thin, num('flt', 1)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
   gl.uniform1f(U.amp, num('flam', 0)); gl.uniform1f(U.scl, num('flsc', 520)); gl.uniform1f(U.oct, num('flcx', 0)); gl.uniform1f(U.evo, evoT * 6.2831853);
@@ -112,7 +139,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-initDefaults('.r2');                                       // r2: parallel lines with a gentle wave (v1.97)
+initDefaults('.r3');                                       // r3: wave 80 / 1000, flips with contrast (v1.98)
 window.__state = { P, val, tone };
 requestAnimationFrame(loop);
 versionCheck();
