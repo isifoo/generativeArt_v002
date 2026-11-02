@@ -68,3 +68,6 @@ The Flip node now reads the image details, not bands of the map: detail = 0.5 + 
 
 ## Overlay Levels, Flip threshold (v2.30)
 The overlay engraving was measured unchanged since v2.17 (mean difference 0.002/255); the extra noise came from the layers under it. Overlay node: Black point / White point (AE Levels on the layer, as a CSS filter; default white 225 turns the light-grey speckle into paper). Flip node: Detail threshold (default 0.12): only details clearly darker than their surroundings cross-hatch.
+
+## Overlay rebuilt (v2.31)
+The overlay is no longer the engraving (engrave.js) with its own depth model. It is drawn in the same shader pass, from the camera: greyscale (540 x 960 texture, mipmapped) -> difference of blurs (a spot darker than its surroundings at Feature size) -> soft threshold, plus Solid blacks for the deepest darks; black on white, multiplied on top. Overlay node: Strength 0.9, Feature size 20 px, Contrast 22, Threshold 0.3, Softness 0.45, Solid blacks 0.18. Dollar 4 no longer loads a depth model at all.

@@ -5,8 +5,9 @@
 //   [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes) + six grey level channels (0-5) as the matte.
 //  [Master] universal values (CSS variables on :root, read with master(name)) and the output: the levels stacked like ink
 //           (multiply: 1 - product of (1 - ink)), so the paper stays white and every level shows.
-// [Overlay] on top of everything: the Dollar engraving (Dollar 1's layer, with its v2.02 look: soft, detailed), multiplied over
-//           the picture at 'Strength'. It has its own depth model, loaded only when the overlay is on.
+// [Overlay] on top of everything (v2.31, rebuilt): the camera in black and white, delicate face features only. Greyscale ->
+//           difference of blurs (a spot darker than its surroundings at 'Feature size' = a feature: eye lines, lashes, brows,
+//           nostrils, lips) -> soft threshold; plus 'Solid blacks' for the deepest darks. Drawn in the same shader pass.
 // + Duplicate level copies the last level into a new one (up to 6). Click a node: Edit shows that node's settings only.
 import { $, vid, cam, VIEW, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
 import { createDepthModel } from './depthmodel.js';
@@ -62,10 +63,12 @@ SLIDERS.push({ head: 'Flip' },
   { id: 'mfx', label: 'Cross (darker details)', min: 0, max: 1, step: 1, val: 1, off: 'no cross: the turned lines replace' },
   { id: 'mft', label: 'Turn deg', min: -90, max: 90, step: 1, val: 45, off: 'no turn: only the wave flips' });   // flipped areas also turn their lines
 SLIDERS.push({ head: 'Overlay' },
-  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
-  { id: 'ovbp', label: 'Black point', min: 0, max: 254, step: 1, val: 0, off: '0' },          // Levels on the overlay layer: contrast,
-  { id: 'ovwp', label: 'White point', min: 1, max: 255, step: 1, val: 225, off: '255' },     // and light greys (speckle) to clean paper
-  ...(D5 ? [] : DEPTH_SL));                                 // Dollar 5: one depth model, its sliders on the Map
+  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.9, off: 'no overlay' },
+  { id: 'ovd', label: 'Feature size px', min: 4, max: 80, step: 1, val: 20, off: '20' },
+  { id: 'ovc', label: 'Contrast', min: 1, max: 40, step: 0.5, val: 22, off: '22' },
+  { id: 'ovt', label: 'Threshold', min: 0, max: 2, step: 0.01, val: 0.3, off: '0' },
+  { id: 'ovf', label: 'Softness', min: 0.02, max: 1.5, step: 0.01, val: 0.45, off: 'hard' },
+  { id: 'ovk', label: 'Solid blacks', min: 0, max: 0.6, step: 0.01, val: 0.18, off: 'none' });
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -161,6 +164,8 @@ uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 al
 uniform int Lshow[${MAXL}];                              // what the Master shows of each level: 1 lines alone, 2 matte alone, 4 lines x matte
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
+uniform sampler2D vidT;                                  // the camera, greyscale on the GPU, with mipmaps (blurs for free)
+uniform vec4 ovP, ovQ;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
 uniform float flipN;
 uniform vec2 flipR;
 uniform float flipT;
@@ -231,6 +236,14 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   if (flipX > 0.5) ink = 1.0 - (1.0 - ink) * (1.0 - strokes(i, px, t, 1.0, p, hw));
   return ink * a;
 }
+float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+float overlay() {                                        // delicate features: darker than their surroundings, soft threshold
+  float f = luma(textureLod(vidT, uv, ovQ.x).rgb), c = luma(textureLod(vidT, uv, ovQ.y).rgb);
+  float e = (c - f) * ovP.y;
+  float ink = smoothstep(ovP.z, ovP.z + ovP.w, e);
+  if (ovQ.z > 0.0) ink = max(ink, 1.0 - smoothstep(ovQ.z - 0.04, ovQ.z + 0.04, f));   // solid blacks (pupils, deep shadows)
+  return ink * ovP.x;
+}
 void main() {
   vec2 px = uv * res;
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
@@ -242,6 +255,7 @@ void main() {
   FL = mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;                   // band 0 (the darker details) flips, then every other band
   float v = 1.0;
   if (mode == 0) {
+    if (ovQ.w > 0.5) v *= 1.0 - overlay();                 // the overlay, multiplied like the levels
     for (int i = 0; i < ${MAXL}; i++) {
       if (i >= nL || v < 0.004) break;
       int sh = Lshow[i]; if (sh == 0) continue;
@@ -251,6 +265,7 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
+  else if (mode == 7) v = 1.0 - overlay();                 // the overlay alone
   else if (mode == 6) v = flipN > 0.0 ? (FL > 0.0 ? 1.0 : 0.0) : 1.0;   // the Flip bands: black = flipped (the darker details)
   else if (mode == 5) v = D5 ? L / 255.0 : floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map (depth: near white)   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
@@ -272,12 +287,30 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, TW, TH); gl.uniform1i(U[name], unit); return t; };
 const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT'), det: tex(2, 'detT') };
+// the overlay's camera texture: 540 x 960 (half the picture), mipmapped
+const VW = 540, VH = 960, vc = document.createElement('canvas'); vc.width = VW; vc.height = VH; const vcx = vc.getContext('2d');
+const vidTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, vidTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+gl.uniform1i(U.vidT, 3);
+let vidUp = false;
+function uploadVideo() {                                   // a new camera frame -> the overlay texture (only while the overlay shows)
+  drawCover(vcx, VW, VH);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vc); gl.generateMipmap(gl.TEXTURE_2D);
+  vidUp = true;
+}
+function ovUniforms() {
+  const lod = (px) => Math.max(0, Math.log2(Math.max(1, px / (OW / VW))));
+  gl.uniform4f(U.ovP, num('ovs', 0), num('ovc', 12), num('ovt', 0), Math.max(0.02, num('ovf', 0.02)));
+  gl.uniform4f(U.ovQ, 1.0, lod(num('ovd', 20)), num('ovk', 0), ovOn() && vidUp ? 1 : 0);
+}
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
 const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
@@ -308,7 +341,7 @@ function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
 }
 
 // ---------------------------------------------------------------- nodes: per level [Lines] [Alpha] -> [LevelNN]; all levels -> [Master]
-const nodeView = $('#nodes'), TWN = 54, THN = 96, OV_TONE = 'Overlay Dollar: Tone (contrast map)';
+const nodeView = $('#nodes'), TWN = 54, THN = 96;
 document.body.classList.add('nodeedit');
 // STUDIO layout: nodes on the left, the picture always in the centre, the settings always open on the right (stacked on phones)
 const studio = true;
@@ -375,7 +408,7 @@ for (const inp of [...hdIn.slice(1), ovHideIn]) inp.addEventListener('input', sh
 function selectNode(grp) {
   selected = grp;
   // the Overlay node shows its own group and the engraving's tone group (the rest of the engraving keeps its v2.02 values)
-  const show = (t) => t === grp || (grp === 'Overlay' && t === OV_TONE);
+  const show = (t) => t === grp;
   for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = !show(h.textContent); }
   $('#setHead').textContent = 'Edit: ' + grp;
   for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.classList.toggle('sel', n.dataset.grp === grp);
@@ -438,10 +471,7 @@ function nodeThumbs(now) {
   render(5, 0, TWN, THN); grab('tmap', TWN, THN);
   render(6, 0, TWN, THN); grab('tflip', TWN, THN);
   render(0, 0, 90, 160); grab('tm', 90, 160);
-  const tov = document.getElementById('tov'), tm = document.getElementById('tm');
-  if (ovOn()) { ovx.filter = ovLevels(); ovx.drawImage(ovCanvas, 0, 0, 216, 384); ovx.filter = 'none'; }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
-  if (tov) { const c = tov.getContext('2d'); c.imageSmoothingQuality = 'high'; c.fillStyle = '#fff'; c.fillRect(0, 0, TWN, THN); if (ovLoaded) c.drawImage(ovSmall, 0, 0, TWN, THN); }   // its last picture, also while hidden (dimmed)
-  if (tm && ovOn()) { const c = tm.getContext('2d'); c.imageSmoothingQuality = 'high'; c.globalCompositeOperation = 'multiply'; c.globalAlpha = num('ovs', 0); c.drawImage(ovSmall, 0, 0, 90, 160); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; }
+  render(7, 0, TWN, THN); grab('tov', TWN, THN);
   $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px' + (master('motion', 0) > 0 ? ' · motion ' + master('motion', 0) : '');
 }
 function layoutNodes() {                                 // the panel's place and its wires, redrawn only when something moved
@@ -516,7 +546,7 @@ let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true;
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); thumbDirty = true; fresh = true; }
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); if (ovOn()) uploadVideo(); thumbDirty = true; fresh = true; }
   if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; }   // a new depth map
   if (!toneReady || now - lastDraw < FRAME_MS) return;
   const speed = master('motion', 0);                      // Master > Motion speed (0 = still)
@@ -525,8 +555,10 @@ function loop(now) {
   evoT += Math.min(0.1, (now - lastT) / 1000) * speed; lastT = now; lastDraw = now; fresh = false;
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
+  ovUniforms();
   nodeThumbs(now);
-  if (solo.has('FL')) render(6);                         // the Flip soloed: its bands
+  if (solo.has('OV')) { if (solo.size === 1) render(7); else render(0); }   // the overlay alone (or with other soloed nodes)
+  else if (solo.has('FL')) render(6);                         // the Flip soloed: its bands
   else if (solo.has('MP')) render(5);                         // the Map soloed: its six greys
   else render(0);                                        // the full picture (solo / hide applied), always last
   frames++; drawMs += performance.now() - t0;
@@ -537,31 +569,19 @@ setInterval(() => {
   $('#stats').innerHTML = `<tr><td>drawn at</td><td>${canvas.width} x ${canvas.height}</td></tr><tr><td>frames / s</td><td>${frames}</td></tr><tr><td>CPU per frame</td><td>${frames ? (drawMs / frames).toFixed(1) : '-'} ms</td></tr>`;
   frames = 0; drawMs = 0;
 }, 1000);
-// ---------------------------------------------------------------- overlay: the Dollar engraving on top (multiply), with its own depth model
-const ovCanvas = document.createElement('canvas');
-ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none;opacity:0';
-canvas.after(ovCanvas);
-const ovSmall = document.createElement('canvas'); ovSmall.width = 216; ovSmall.height = 384; const ovx = ovSmall.getContext('2d'); ovx.imageSmoothingQuality = 'high';
-const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1' && (!solo.size || solo.has('OV'));   // visible: worked out only then
-const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; });
-let ovLoaded = false;
-function ovLevels() {                                     // AE Levels as a CSS filter: out = (in - black) / (white - black)
-  const bp = num('ovbp', 0) / 255, wp = Math.max(bp + 1 / 255, num('ovwp', 255) / 255), a = 1 / (wp - bp), c = -bp / (wp - bp), y = 1 - 2 * c;
-  return `brightness(${(a / y).toFixed(4)}) contrast(${y.toFixed(4)})`;
-}
-function ovStyle() { ovCanvas.style.filter = ovLevels(); ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
-// the look Gerry liked (v2.02): the engraving's own defaults; depth detail 22, smoothing 0.85, strength 0.6
-window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: null };
-await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
-for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);   // capture (restored settings too), read after the slider has updated
-if (D5) { ovLoaded = true; DM.load(); }                    // Dollar 5: the depth map is the Map, always on
-setInterval(() => { if ((D5 || ovOn()) && DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100);   // depth for the overlay, only while it is on
+// ---------------------------------------------------------------- overlay (v2.31): drawn in the shader, see overlay()
+const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1' && (!solo.size || solo.has('OV'));
+function ovStyle() { if (ovOn() && !vidUp && vid.readyState >= 2) uploadVideo(); thumbDirty = true; dirty = true; }
+for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);
+// Dollar 5: the depth model makes the Map
+const DM = D5 ? createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; }) : null;
+if (D5) { DM.load(); setInterval(() => { if (DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100); }
 nodeView.hidden = false;
 if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();
 initDefaults('.r13');
 ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
-window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo };
+window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn };
 requestAnimationFrame(loop);
 versionCheck();
 if (!noCam) await startCamera();
