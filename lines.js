@@ -85,18 +85,15 @@ syncMaster();
 // saved with the defaults: how many levels, and each level's matte channels
 const hidden = (id, v) => { const i = document.createElement('input'); i.type = 'hidden'; i.id = id; i.value = v; i.dataset.save = ''; $('#settings').prepend(i); return i; };
 const nIn = hidden('flevels', '1'), chIn = [], hfIn = [];
-const hdIn = [], srcIn = [], srcW = [];                  // track matte per level: source ('', 'OV', 'L1'..'L6') and which part                                           // hide flags per level: 1 = Lines hidden, 2 = Alpha hidden, 4 = the level hidden
-for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); hdIn[k] = hidden(`l${k}hide`, '0'); srcIn[k] = hidden(`l${k}src`, ''); srcW[k] = hidden(`l${k}srcw`, '0'); }   // half: lines moved half a spacing
+const hdIn = [], srcIn = [];                             // matte per level: '' the Map, 'OV' the Overlay, 'FL' the Flip                                           // hide flags per level: 1 = Lines hidden, 2 = Alpha hidden, 4 = the level hidden
+for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); hdIn[k] = hidden(`l${k}hide`, '0'); srcIn[k] = hidden(`l${k}src`, ''); }   // half: lines moved half a spacing
 const ovHideIn = hidden('ovhide', '0');
 // SOLO / HIDE, like After Effects. Node ids: L3 (Lines of level 3), A3 (its Alpha), O3 (the level), OV (the overlay).
 //  Hide always wins. With nothing soloed the Master shows every visible level (+ overlay). With anything soloed it shows only
 //  the soloed nodes (several at once), each as it is: Lines = the lines alone, Alpha = the matte, Level = lines x matte.
 //  Solo is a viewing tool (not saved); hides are saved with the setup.
 const solo = new Set();
-function trackSrc(k) {                                   // 0 none, 1 overlay, 2 + j: Level j+1 (only an existing, other level)
-  const v = srcIn[k].value; if (v === 'OV') return 1;
-  const j = /^L\d$/.test(v) ? +v[1] : 0; return j && j !== k && j <= nLevels() ? 1 + j : 0;
-}
+function trackSrc(k) { const v = srcIn[k].value; return v === 'OV' ? 1 : v === 'FL' ? 2 : 0; }   // the level's matte: 0 Map, 1 Overlay, 2 Flip
 const usesOverlay = () => srcIn.slice(1).some((x, i) => x.value === 'OV' && i + 1 <= nLevels());
 const hideBits = (k) => parseInt(hdIn[k].value) || 0;
 const nLevels = () => Math.min(MAXL, Math.max(1, parseInt(nIn.value) || 1));
@@ -171,7 +168,7 @@ uniform vec4 Lp[${MAXL}];                                // width, dash length (
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
 uniform sampler2D vidT;                                  // the camera, greyscale on the GPU, with mipmaps (blurs for free)
 uniform vec4 ovP, ovQ;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
-uniform int Lsrc[${MAXL}], Lsw[${MAXL}];                 // track matte per level: source, which part (ink / white)
+uniform int Lsrc[${MAXL}];                               // matte per level: 0 Map, 1 Overlay, 2 Flip
 uniform float flipN;
 uniform vec2 flipR;
 uniform float flipT;
@@ -251,18 +248,18 @@ float levelBase(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {  
   if (flipX > 0.5) ink = 1.0 - (1.0 - ink) * (1.0 - strokes(i, px, t, 1.0, p, hw));
   return ink * a;
 }
-// TRACK MATTE (like After Effects): another layer decides where this one shows. Source: 1 = the Overlay, 2 + j = Level j
-// (its lines through its own matte). Lsw: 0 = where the source has ink, 1 = where it is white. Multiplied with the own matte.
-float track(int i, vec2 px, float dk, float L, float aa) {
-  int s = Lsrc[i]; if (s == 0) return 1.0;
-  float m = s == 1 ? overlayRaw() : levelBase(s - 2, px, dk, L, aa, true);
-  return Lsw[i] == 1 ? 1.0 - m : m;
+// MATTE per level, one of three: 0 the Map (channels / Extract), 1 the Overlay (its ink), 2 the Flip (its darker details)
+float alphaFull(int i, vec2 px, float dk, float L, float aa) {
+  if ((Lhide[i] & 2) != 0) return 1.0;                   // Alpha hidden: fully on
+  int s = Lsrc[i];
+  if (s == 1) return overlayRaw();
+  if (s == 2) return flipN > 0.0 && FL < 0.0 ? 1.0 : 0.0;
+  return alpha(i, L, aa);
 }
-float alphaFull(int i, vec2 px, float dk, float L, float aa) { return alpha(i, L, aa) * track(i, px, dk, L, aa); }
 float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   if (!withAlpha) return levelBase(i, px, dk, L, aa, false);
-  float t = track(i, px, dk, L, aa); if (t < 0.004) return 0.0;
-  return levelBase(i, px, dk, L, aa, true) * t;
+  float m = alphaFull(i, px, dk, L, aa); if (m < 0.004) return 0.0;   // the matte first: where it is 0 the lines are never worked out
+  return levelBase(i, px, dk, L, aa, false) * m;
 }
 void main() {
   vec2 px = uv * res;
@@ -307,7 +304,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc', 'Lsw']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -342,11 +339,11 @@ function setUniforms() {                                  // only when a setting
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang); uLt[i * 4 + 2] = num(`l${k}rg`, 0);
     if (D5) { uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0); }
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
-    uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k); uTs[i] = trackSrc(k); uTw[i] = srcW[k].value === '1' ? 1 : 0;
+    uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k); uTs[i] = trackSrc(k);
   }
   gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape();
-  if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs); gl.uniform1iv(U.Lsrc, uTs); gl.uniform1iv(U.Lsw, uTw);
+  if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs); gl.uniform1iv(U.Lsrc, uTs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
 function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
@@ -383,10 +380,10 @@ function buildNodes() {
     <button type="button" class="addlvl" style="grid-row:${n + 2};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
-  // DRAG TO CONNECT: from the Overlay or a Level node onto an Alpha node = that Alpha's track matte (drop it again = disconnect)
-  for (const el of nodeView.querySelectorAll('[data-grp="Overlay"], .node.out')) el.onpointerdown = (e) => {
+  // DRAG TO CONNECT: from the Overlay or the Flip node onto an Alpha node = that Alpha's matte (drop it again = back to the Map)
+  for (const el of nodeView.querySelectorAll('[data-grp="Overlay"], .node.flip')) el.onpointerdown = (e) => {
     if (e.target.closest('.nb, .rm')) return;
-    const id = el.dataset.out ? 'L' + el.dataset.out : 'OV', g = nodeView.querySelector('.ngrid'), wires = nodeView.querySelector('.wires');
+    const id = el.classList.contains('flip') ? 'FL' : 'OV', g = nodeView.querySelector('.ngrid'), wires = nodeView.querySelector('.wires');
     const z = g.getBoundingClientRect().width / g.offsetWidth, rel = (x, y) => { const r = g.getBoundingClientRect(); return [(x - r.left) / z, (y - r.top) / z]; };
     const b = el.getBoundingClientRect(), p0 = rel(b.left, b.top + b.height / 2), x0 = e.clientX, y0 = e.clientY;
     let tmp = null, moved = false;
@@ -402,7 +399,7 @@ function buildNodes() {
       if (tmp) tmp.remove(); for (const a of nodeView.querySelectorAll('.drop')) a.classList.remove('drop');
       if (!moved) return;
       const t = document.elementFromPoint(u.clientX, u.clientY)?.closest('.node[data-grp$=" Alpha"]');
-      if (t) { const k = +t.dataset.grp.slice(5, 7); if (id !== 'L' + k) { srcIn[k].value = srcIn[k].value === id ? '' : id; srcIn[k].dispatchEvent(new Event('input')); selectNode(t.dataset.grp); } }
+      if (t) { const k = +t.dataset.grp.slice(5, 7); srcIn[k].value = srcIn[k].value === id ? '' : id; srcIn[k].dispatchEvent(new Event('input')); selectNode(t.dataset.grp); }
       el.dataset.dragged = '1'; setTimeout(() => { delete el.dataset.dragged; }, 50);
     };
     addEventListener('pointermove', move); addEventListener('pointerup', up);
@@ -468,7 +465,7 @@ function addLevel() {
   }
   chIn[n + 1].value = chIn[n].value; chIn[n + 1].dispatchEvent(new Event('input'));
   hfIn[n + 1].value = hfIn[n].value; hfIn[n + 1].dispatchEvent(new Event('input'));
-  for (const a of [srcIn, srcW]) { a[n + 1].value = a[n].value; a[n + 1].dispatchEvent(new Event('input')); }
+  srcIn[n + 1].value = srcIn[n].value; srcIn[n + 1].dispatchEvent(new Event('input'));
   hdIn[n + 1].value = hdIn[n].value; hdIn[n + 1].dispatchEvent(new Event('input'));
   nIn.value = String(n + 1); selected = `Level${pad(n + 1)} Lines`; buildNodes();
 }
@@ -507,7 +504,7 @@ function layoutWires() {
   const g = nodeView.querySelector('.ngrid'); if (!g) return;
   // fit the graph to its column: scale it down (never up), and cancel the empty space the scale leaves
   const z = Math.min(1, (nodeView.clientWidth - 24) / g.offsetWidth);
-  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + P.on.mfl + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value, srcIn.map((x) => x.value).join(), srcW.map((x) => x.value).join()].join('|');
+  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + P.on.mfl + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value, srcIn.map((x) => x.value).join()].join('|');
   if (key === wiresKey) return; wiresKey = key;
   g.style.transform = z < 1 ? `scale(${z})` : ''; g.style.marginRight = (z - 1) * g.offsetWidth + 'px'; g.style.marginBottom = (z - 1) * g.offsetHeight + 'px';
   const r2 = g.getBoundingClientRect();
@@ -520,9 +517,9 @@ function layoutWires() {
     w += curve(pt(out, true), m, !showBits(k));            // dashed: this level does not reach the Master
   }
   w += curve(pt(nodeView.querySelector('[data-grp="Overlay"]'), true), m, !ovOn());
-  // track mattes: a green wire from the source (Overlay or a Level) back to the Alpha it feeds
+  // mattes from the Overlay or the Flip: a green wire to the Alpha it feeds
   for (let k = 1; k <= n; k++) { const s = trackSrc(k); if (!s) continue;
-    const src = s === 1 ? nodeView.querySelector('[data-grp="Overlay"]') : nodeView.querySelector(`[data-out="${s - 1}"]`), p = pt(src, false), q = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true);
+    const src = nodeView.querySelector(s === 1 ? '[data-grp="Overlay"]' : '.node.flip'), p = pt(src, s === 2), q = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true);
     q[1] += 14; w += `<path class="trk" d="M${p[0]},${p[1]} C${p[0] - 30},${p[1]} ${q[0] + 30},${q[1]} ${q[0]},${q[1]}"/>`; }
   // the Map feeds every Alpha: a bus up the gap left of the Alpha column, a short tap into each Alpha
   const mp = nodeView.querySelector('.node.map'), mb = mp.getBoundingClientRect(), bx = (mb.left - r2.left) / z - 4, by = (mb.top - r2.top + mb.height / 2) / z;
@@ -555,18 +552,20 @@ for (let k = 1; k <= (D5 ? 0 : MAXL); k++) {
   inp.addEventListener('input', show); show();
 }
 
-// ---------------------------------------------------------------- track matte: per Alpha, a source and which part of it
+// ---------------------------------------------------------------- matte: per Alpha, one of three (the Map, the Flip, the Overlay)
 for (let k = 1; k <= MAXL; k++) {
   const row = document.createElement('div'); row.className = 'chanrow trkrow';
-  const opts = ['<option value="">None</option>', '<option value="OV">Overlay</option>'].concat([1, 2, 3, 4, 5, 6].filter((j) => j !== k).map((j) => `<option value="L${j}">Level${pad(j)}</option>`));
-  row.innerHTML = `<span class="lab">Track matte</span><span class="trk"><select class="tsrc">${opts.join('')}</select>
-    <select class="tw"><option value="0">where it has ink</option><option value="1">where it is white</option></select></span>`;
-  [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Alpha`).nextElementSibling.append(row);
-  const [sel, w] = row.querySelectorAll('select');
+  row.innerHTML = `<span class="lab">Matte</span><span class="trk"><select class="tsrc"><option value="">${D5 ? 'Depth map' : 'Map'}</option><option value="FL">Flip</option><option value="OV">Overlay</option></select></span>`;
+  const body = [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Alpha`).nextElementSibling;
+  body.prepend(row);
+  const sel = row.querySelector('select');
   sel.onchange = () => { srcIn[k].value = sel.value; srcIn[k].dispatchEvent(new Event('input')); };
-  w.onchange = () => { srcW[k].value = w.value; srcW[k].dispatchEvent(new Event('input')); };
-  const show = () => { sel.value = srcIn[k].value; w.value = srcW[k].value; w.disabled = !srcIn[k].value; dirty = true; wiresKey = ''; if (typeof ovStyle === 'function') setTimeout(ovStyle); };
-  srcIn[k].addEventListener('input', show); srcW[k].addEventListener('input', show); show();
+  const show = () => {
+    const v = ['', 'FL', 'OV'].includes(srcIn[k].value) ? srcIn[k].value : ''; sel.value = v;
+    for (const r of body.children) if (r !== row) r.classList.toggle('mapOnly', !!v);   // the Map's own settings dim when another matte is used
+    dirty = true; wiresKey = ''; if (typeof ovStyle === 'function') setTimeout(ovStyle);
+  };
+  srcIn[k].addEventListener('input', show); show(); setTimeout(show);   // again once every row of the panel exists
 }
 
 // ---------------------------------------------------------------- half-spacing shift: one checkbox per level (in its Lines node)
@@ -586,7 +585,7 @@ let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true;
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); if (ovOn() || usesOverlay()) uploadVideo(); thumbDirty = true; fresh = true; }
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); uploadVideo(); thumbDirty = true; fresh = true; }   // the camera texture always: the overlay, its thumbnail, solo and mattes read it
   if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; }   // a new depth map
   if (!toneReady || now - lastDraw < FRAME_MS) return;
   const speed = master('motion', 0);                      // Master > Motion speed (0 = still)
@@ -611,7 +610,7 @@ setInterval(() => {
 }, 1000);
 // ---------------------------------------------------------------- overlay (v2.31): drawn in the shader, see overlay()
 const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1' && (!solo.size || solo.has('OV'));
-function ovStyle() { if ((ovOn() || usesOverlay()) && !vidUp && vid.readyState >= 2) uploadVideo(); thumbDirty = true; dirty = true; }
+function ovStyle() { if (!vidUp && vid.readyState >= 2) uploadVideo(); thumbDirty = true; dirty = true; }
 for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);
 // Dollar 5: the depth model makes the Map
 const DM = D5 ? createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; }) : null;

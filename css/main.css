@@ -121,6 +121,7 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .wires path.trk { stroke:#5fbf7f; stroke-width:1.5; stroke-dasharray:6 3; }
 #nodes .node.drop { border-color:#5fbf7f; box-shadow:0 0 0 2px #5fbf7f; }
 #nodes .node[data-grp="Overlay"], #nodes .node.out { touch-action:none; }
+#settings .mapOnly { opacity:.35; }
 .trkrow .trk { display:flex; gap:6px; flex-wrap:wrap; }
 #nodes .wires path.bus { stroke:#7fa7c9; stroke-width:1.5; }
 #nodes .node.map { border-color:#7fa7c9; }

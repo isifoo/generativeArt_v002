@@ -74,3 +74,6 @@ The overlay is no longer the engraving (engrave.js) with its own depth model. It
 
 ## Track mattes (v2.32)
 Each Alpha has a Track matte (like After Effects): source None / Overlay / another Level (its lines through its own matte), and which part: where it has ink, or where it is white. It multiplies with the layer's own matte (channels / Extract); leave the channels empty to use only the track matte. The Overlay works as a matte while hidden. Connect by dragging from the Overlay or a Level node onto an Alpha (same drag again = disconnect), or in the Alpha's panel; connections show as green dashed wires. Alpha thumbnails are drawn by the shader and include the track matte.
+
+## One matte per Alpha (v2.33)
+Simpler: each Alpha has one Matte menu: Map (channels / Extract, as before), Flip (the Flip node's darker details), Overlay (the face features). The two-menu track matte and level-as-matte are gone (an old saved level-matte reads as Map). Drag the Flip or Overlay node onto an Alpha to choose it (again = back to Map); green wires show it; the Map's own settings dim when another matte is used. The camera texture is always updated, so the Overlay works as a matte, thumbnail and solo while hidden.
