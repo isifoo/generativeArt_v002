@@ -71,3 +71,6 @@ The overlay engraving was measured unchanged since v2.17 (mean difference 0.002/
 
 ## Overlay rebuilt (v2.31)
 The overlay is no longer the engraving (engrave.js) with its own depth model. It is drawn in the same shader pass, from the camera: greyscale (540 x 960 texture, mipmapped) -> difference of blurs (a spot darker than its surroundings at Feature size) -> soft threshold, plus Solid blacks for the deepest darks; black on white, multiplied on top. Overlay node: Strength 0.9, Feature size 20 px, Contrast 22, Threshold 0.3, Softness 0.45, Solid blacks 0.18. Dollar 4 no longer loads a depth model at all.
+
+## Track mattes (v2.32)
+Each Alpha has a Track matte (like After Effects): source None / Overlay / another Level (its lines through its own matte), and which part: where it has ink, or where it is white. It multiplies with the layer's own matte (channels / Extract); leave the channels empty to use only the track matte. The Overlay works as a matte while hidden. Connect by dragging from the Overlay or a Level node onto an Alpha (same drag again = disconnect), or in the Alpha's panel; connections show as green dashed wires. Alpha thumbnails are drawn by the shader and include the track matte.
