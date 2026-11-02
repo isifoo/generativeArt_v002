@@ -3,6 +3,8 @@
    (palette.js), and every engine reads them. A new style needs nothing else: read the palette, draw.
    --c1 = dark areas, --c2 = middle tones (used when --colors is 3), --c3 = light areas, --paper = background. */
 :root {
+  /* MASTER: universal values shared by every node (the Master node edits them) */
+  --spacing: 15;
   --colors: 2;
   --c1: #c4471f;
   --c2: #e9953a;
@@ -106,7 +108,10 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .node:hover { border-color:#e8b04a; }
 #nodes .node b { display:block; font-size:10px; font-weight:600; color:#ddd; margin:0 0 4px; letter-spacing:.03em; }
 #nodes .node canvas { display:block; width:90px; height:160px; background:#fff; border-radius:3px; }
-#nLines { grid-column:1; grid-row:1; } #nAlpha { grid-column:1; grid-row:2; } #nOut { grid-column:3; grid-row:1 / span 2; cursor:default; }
+#nMaster { grid-column:1; grid-row:1; } #nLines { grid-column:1; grid-row:2; } #nAlpha { grid-column:1; grid-row:3; } #nOut { grid-column:3; grid-row:2 / span 2; cursor:default; }
+#nodes .node.master { background:#2b2414; border-color:#e8b04a; padding:6px 8px; }
+#nodes .node.master span { display:block; font:11px ui-monospace, Consolas, monospace; color:#e8b04a; }
+#nodes .wires path.dash { stroke-dasharray:4 4; }
 @media (max-width:760px) { #nodes { left:8px; top:8px; padding:8px; transform:scale(.7); transform-origin:left top; } }
 
 /* node edit (Fractal Lines): the panel shows the selected node's sliders only */

@@ -12,10 +12,13 @@ const OW = 1080, OH = 1920;
 const LOOK = { thin: 0, amp: 86.5, len: 1090, variation: 0.8, drift: 0.06, flip: 1, flipSoft: 90, con: 1.3, bri: 0, smooth: 0.6 };
 const SHAPE_PX = 16;                                       // the alpha's shapes are smoothed this much, so they are clean
 const SLIDERS = [
+  { head: 'Master' },
+  { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
   { head: 'Lines' },
-  { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
   { id: 'flw', label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
   { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
+  { id: 'fdl', label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
+  { id: 'fdg', label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
   { head: 'Alpha (Extract + 6 levels)' },
   { id: 'xbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
@@ -26,6 +29,14 @@ const SLIDERS = [
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
+// MASTER: universal values every node reads, kept as CSS variables on :root (like the palette in css/main.css).
+// The Master node's sliders write them; any node (now or later) reads them with master(name).
+const root = document.documentElement;
+const MASTER = { spacing: 'mspc' };
+function syncMaster() { for (const [k, id] of Object.entries(MASTER)) root.style.setProperty('--' + k, String(num(id, 15))); }
+function master(k, def) { const v = parseFloat(getComputedStyle(root).getPropertyValue('--' + k)); return Number.isFinite(v) ? v : def; }
+for (const id of Object.values(MASTER)) { const el = $('#' + id); el.addEventListener('input', syncMaster); el.parentElement.querySelector('.onoff input').addEventListener('change', syncMaster); }
+syncMaster();
 
 // ---------------------------------------------------------------- tone (CPU, small and soft)
 const TW = 180, TH = 320, TN = TW * TH;
@@ -63,7 +74,7 @@ precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D toneT, softT, shapeT;
 uniform vec2 res;
-uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv;
+uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv, dlen, dgap;   // dlen 0 = continuous
 uniform int lmask;                                       // level channels switched on (bit k = level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, VAR = ${LOOK.variation.toFixed(3)};
 const float FLIP = ${LOOK.flip.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
@@ -85,6 +96,11 @@ void main() {
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
   float hw = 0.5 * wid * mix(THIN, 1.0, dk);
   float inkv = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
+  // dashes: along each line, dash length then gap, repeating (measured along the line direction)
+  if (dlen > 0.0 && dgap > 0.0) {
+    float per = dlen + dgap, u = mod(dot(px, t), per), e = min(u, dlen - u);   // e: px inside the dash (< 0 in the gap)
+    inkv *= smoothstep(-0.6, 0.6, e);
+  }
   // [Alpha] AE Extract on the luminance: transparent below Black Point and above White Point, feathered by the softness
   float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
   float lo = smoothstep(bp - bs - aa, bp, L);
@@ -112,7 +128,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv', 'lmask']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'dlen', 'dgap', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv', 'lmask']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -127,7 +143,7 @@ function render(withAlpha = true) {
     }
     upload = false;
   }
-  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 15)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
+  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1f(U.dlen, P.on.fdl === false ? 0 : P.fdl); gl.uniform1f(U.dgap, num('fdg', 0)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
   gl.uniform1f(U.evo, evoT * 6.2831853); gl.uniform1f(U.useAlpha, withAlpha ? 1 : 0);
   gl.uniform1f(U.bp, num('xbp', 0)); gl.uniform1f(U.wp, num('xwp', 255)); gl.uniform1f(U.bs, num('xbs', 0)); gl.uniform1f(U.ws, num('xws', 0)); gl.uniform1f(U.inv, num('xinv', 0)); gl.uniform1i(U.lmask, levelMask());
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -135,7 +151,8 @@ function render(withAlpha = true) {
 
 // ---------------------------------------------------------------- nodes: live thumbnails, wires; click = that node's settings
 const nodeView = $('#nodes');
-nodeView.innerHTML = `<svg class="wires"><path id="w1"/><path id="w2"/></svg>
+nodeView.innerHTML = `<svg class="wires"><path id="w1"/><path id="w2"/><path id="wm" class="dash"/></svg>
+  <div class="node master" id="nMaster" data-grp="Master"><b>Master</b><span id="nMasterV"></span></div>
   <div class="node" id="nLines" data-grp="Lines"><b>Lines</b><canvas width="90" height="160"></canvas></div>
   <div class="node" id="nAlpha" data-grp="Alpha"><b>Alpha (levels)</b><canvas width="90" height="160"></canvas></div>
   <div class="node out" id="nOut"><b>Out = lines x alpha</b><canvas width="90" height="160"></canvas></div>`;
@@ -160,6 +177,9 @@ function nodeThumbs() {
   acx.putImageData(aimg, 0, 0); thumb('nAlpha').drawImage(acv, 0, 0, 90, 160);
   const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
   const o = pt($('#nOut'), false);
+  $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px';
+  { const m = $('#nMaster').getBoundingClientRect(), l = $('#nLines').getBoundingClientRect(), x = m.left - r.left + m.width / 2;   // master -> the nodes that use it (dashed)
+    $('#wm').setAttribute('d', `M${x},${m.bottom - r.top} L${x},${l.top - r.top}`); }
   for (const [w, n] of [['w1', 'nLines'], ['w2', 'nAlpha']]) { const p = pt($('#' + n), true); $('#' + w).setAttribute('d', `M${p[0]},${p[1]} C${p[0] + 30},${p[1]} ${o[0] - 30},${o[1]} ${o[0]},${o[1]}`); }
 }
 // the Edit panel shows the selected node's sliders only
@@ -198,7 +218,7 @@ function showChans() { const s = sel(); chanRow.querySelectorAll('button').forEa
 chanRow.querySelectorAll('button').forEach((b) => { b.onclick = () => { const s = sel(), k = +b.dataset.k; if (s.has(k)) s.delete(k); else s.add(k); chans.value = [...s].sort().join(','); showChans(); }; });
 chans.addEventListener('input', showChans);            // Set default restores it through this field
 showChans();
-initDefaults('.r11');                                      // r11: level channels (v2.10)                                      // r10: alpha in 6 grades (v2.08)
+initDefaults('.r12');                                      // r12: Master node (spacing) + dashes (v2.12)                                      // r10: alpha in 6 grades (v2.08)
 window.__state = { P, tone, shape };
 requestAnimationFrame(loop);
 versionCheck();
