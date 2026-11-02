@@ -16,6 +16,7 @@ export const VERSIONS = [
   { id: 'dollar', label: 'Dollar' },
   { id: 'dollar2', label: 'Dollar 2' },
   { id: 'dollar3', label: 'Dollar 3' },
+  { id: 'flines', label: 'Fractal Lines' },
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
@@ -44,10 +45,23 @@ addEventListener('pointercancel', () => { if (hold.drag) { hold.drag = false; ho
 // list entries: { id, label, min, max, step, val, off }, or { head } for a group heading. Off sends -1 (P.on[id] = false).
 const fmt = (v, step) => { const d = (String(step).split('.')[1] || '').length; return Number(v).toFixed(d); };
 export const rows = {};
+// folded groups, remembered per style
+const FOLDKEY = 'genArt002.fold.' + VIEW;
+const folds = new Set((() => { try { return JSON.parse(localStorage.getItem(FOLDKEY) || '[]'); } catch { return []; } })());
+const saveFolds = () => { try { localStorage.setItem(FOLDKEY, JSON.stringify([...folds])); } catch {} };
 export function buildSliders(list, P) {
   P.on = P.on || {};
+  let body = null;                                           // rows go into the current group (folds with its heading)
   for (const s of list) {
-    if (s.head) { const h = document.createElement('h2'); h.className = 'grp'; h.textContent = s.head; $('#sliders').append(h); continue; }
+    if (s.head) {                                            // a group heading that folds (like an After Effects twirl-down)
+      const h = document.createElement('h2'); h.className = 'grp'; h.textContent = s.head;
+      body = document.createElement('div'); body.className = 'fold';
+      const b = body, key = s.head;
+      const set = (open) => { b.hidden = !open; h.classList.toggle('closed', !open); };
+      set(!folds.has(key));
+      h.onclick = () => { const open = b.hidden; set(open); if (open) folds.delete(key); else folds.add(key); saveFolds(); };
+      $('#sliders').append(h, body); continue;
+    }
     P[s.id] = s.val; P.on[s.id] = true;
     const row = document.createElement('div'); row.className = 'sl';
     row.innerHTML = `<span class="lab">${s.label}</span>` +
@@ -55,7 +69,7 @@ export function buildSliders(list, P) {
       `<output></output>` +
       `<input type="number" class="mx" step="any" value="${s.max}" title="Max of the range">` +
       `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox" checked><i>-1</i></label>`;
-    $('#sliders').append(row);
+    (body || $('#sliders')).append(row);
     const [rng, mx, cb] = row.querySelectorAll('input'), out = row.querySelector('output');
     const show = () => { out.textContent = P.on[s.id] ? fmt(rng.value, s.step) : '-1'; };
     rng.addEventListener('pointerdown', () => { hold.drag = true; hold.poke(); });
@@ -149,6 +163,14 @@ export function drawCover(c, w, h) {
 
 // ---------------------------------------------------------------- colours (one palette for every style)
 mountPaletteEditor($('#palette'));
+{ // the Colours heading folds too (closed by default: the wheel is big)
+  const h = $('#palette').previousElementSibling, b = $('#palette'), key = '#colours';
+  if (!localStorage.getItem(FOLDKEY)) folds.add(key);
+  h.classList.add('foldh');
+  const set = (open) => { b.hidden = !open; h.classList.toggle('closed', !open); };
+  set(!folds.has(key));
+  h.onclick = () => { const open = b.hidden; set(open); if (open) folds.delete(key); else folds.add(key); saveFolds(); };
+}
 
 // ---------------------------------------------------------------- owner PIN
 // Saving defaults is hidden behind a 4 digit PIN: the Owner button at the bottom of Edit, or a click on the version line (Lock / click again to lock).
