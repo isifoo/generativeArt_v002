@@ -28,6 +28,7 @@ for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { id: `l${k}a`, label: 'Angle deg', min: -90, max: 90, step: 1, val: -6 + (k - 1) * 30, off: '0' },
   { id: `l${k}dl`, label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
   { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
+  { id: `l${k}rg`, label: 'Rough edges px', min: 0, max: 4, step: 0.05, val: 0.8, off: 'clean edges' },
   { head: `Level${pad(k)} Alpha` },
   ...(D5 ? [                                               // Extract on the depth map: the layer shows where depth is between the points
     { id: `l${k}bp`, label: 'Black point', min: 0, max: 255, step: 1, val: 0, off: '0' },
@@ -50,6 +51,8 @@ else SLIDERS.push({ head: 'Map' },
   { id: 'mwp', label: 'White point', min: 0, max: 255, step: 1, val: 255, off: '255' },
   { id: 'msm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 16, off: 'raw (no smoothing)' },
   { id: 'msf', label: 'Softness %', min: 0, max: 100, step: 1, val: 0, off: 'hard edges' });
+// FLIP: the map cut into bands; at every band edge the sine breaks and flips direction (every level's lines)
+SLIDERS.push({ head: 'Flip' }, { id: 'mfl', label: 'Bands', min: 2, max: 6, step: 1, val: 4, off: 'no flip' });
 SLIDERS.push({ head: 'Overlay' },
   { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' }, ...(D5 ? [] : DEPTH_SL));   // Dollar 5: one depth model, its sliders on the Map
 const P = {};
@@ -139,6 +142,8 @@ uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 al
 uniform int Lshow[${MAXL}];                              // what the Master shows of each level: 1 lines alone, 2 matte alone, 4 lines x matte
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
+uniform float flipN;                                     // Flip: number of bands (0 = off)
+float FL = 1.0;                                          // this pixel's wave direction (+1 / -1), set in main
 uniform vec3 mapP;                                       // the Map: black point, white point, softness (0..1 of half a band)
 uniform float Lsoft[${MAXL}];
 uniform vec4 Le[${MAXL}];                                // Dollar 5 Extract: black point, white point, black softness, white softness
@@ -168,6 +173,12 @@ float alpha(int i, float L, float aa) {
   }
   return clamp(a, 0.0, 1.0);
 }
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0)), f.x), f.y); }
+float rough(vec2 px, float r) {                          // ink on paper: the edge wanders by up to r px (two scales of noise, fixed to the paper)
+  return r * ((vnoise(px / 5.0) - 0.5) * 1.5 + (vnoise(px / 1.8 + 17.0) - 0.5) * 0.7);
+}
 float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
   if (a < 0.004) return 0.0;
@@ -176,14 +187,15 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   if (hw < 0.05) return 0.0;
   vec2 t = Lt[i].xy, nrm = vec2(-t.y, t.x);
   float s = dot(px, t), arg = K * s + evo;
-  float phi = (dot(px, nrm) + AMP * sin(arg)) / sp + p.w;   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
-  float g = length(nrm + (AMP * K * cos(arg)) * t) / sp; // its exact slope (no screen derivatives, so levels can be skipped)
-  float d = abs(fract(phi + 0.5) - 0.5) / g;             // distance to the nearest line, picture px
+  float phi = (dot(px, nrm) + FL * AMP * sin(arg)) / sp + p.w;   // FL: the Flip node turns the wave over in every other band   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
+  float g = length(nrm + (FL * AMP * K * cos(arg)) * t) / sp; // its exact slope (no screen derivatives, so levels can be skipped)
+  float rg = Lt[i].z, rn = rg > 0.0 ? rough(px, rg) : 0.0;
+  float d = abs(fract(phi + 0.5) - 0.5) / g + rn;        // distance to the nearest line, picture px (+ rough edges)
   float ink = 1.0 - smoothstep(hw - 0.6 * pxs, hw + 0.6 * pxs, d);
   ink = mix(ink, clamp(2.0 * hw * g, 0.0, 1.0), smoothstep(0.3, 0.6, g * pxs));   // lines finer than the pixels: their average grey
   if (p.y > 0.0 && p.z > 0.0) {
     float per = p.y + p.z, u = mod(s, per);
-    ink *= mix(smoothstep(-0.6 * pxs, 0.6 * pxs, min(u, p.y - u)), p.y / per, smoothstep(1.0, 2.0, pxs / per * 2.0));
+    ink *= mix(smoothstep(-0.6 * pxs, 0.6 * pxs, min(u, p.y - u) - rn), p.y / per, smoothstep(1.0, 2.0, pxs / per * 2.0));
   }
   return ink * a;
 }
@@ -193,6 +205,9 @@ void main() {
   float L = texture(shapeT, uv).r * 255.0, aa = D5 ? fwidth(L) + 1e-3 : 0.5 * fwidth(band(L, false)) + 1e-3;   // anti-aliasing (map units / bands)
   // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
+  float mt = D5 ? L / 255.0 : 1.0 - band(L, false) / 6.0;   // the map, 0 (dark / far) .. 1 (light / near)
+  float fb = flipN > 0.0 ? floor(min(mt * flipN, flipN - 0.001)) : 0.0;
+  FL = mod(fb, 2.0) < 0.5 ? 1.0 : -1.0;
   float v = 1.0;
   if (mode == 0) {
     for (int i = 0; i < ${MAXL}; i++) {
@@ -204,6 +219,7 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
+  else if (mode == 6) v = flipN > 0.0 ? (FL > 0.0 ? 1.0 : 0.0) : 1.0;   // the Flip bands: white = one way, black = flipped
   else if (mode == 5) v = D5 ? L / 255.0 : floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map (depth: near white)   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
   else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
@@ -224,7 +240,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -238,12 +254,12 @@ function setUniforms() {                                  // only when a setting
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
     uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
-    uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang);
+    uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang); uLt[i * 4 + 2] = num(`l${k}rg`, 0);
     if (D5) { uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0); }
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
@@ -277,7 +293,8 @@ function buildNodes() {
   h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay${sh('OV')}</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
     <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><span class="mmode">Multiply</span><canvas id="tm" width="90" height="160"></canvas></div>
     <div class="node map" data-grp="Map" style="grid-row:${n + 1};grid-column:2"><b>${D5 ? 'Depth map' : 'Map'}${sh('MP', true)}</b><canvas id="tmap" width="${TWN}" height="${THN}"></canvas></div>
-    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
+    <div class="node flip" data-grp="Flip" style="grid-row:${n + 1};grid-column:1"><b>Flip${sh('FL', true)}</b><canvas id="tflip" width="${TWN}" height="${THN}"></canvas></div>
+    <button type="button" class="addlvl" style="grid-row:${n + 2};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
   // CLICK A NODE = solo it (and edit it). Click it again: solo off. Another node: solo that one instead. Master: the full picture.
@@ -300,7 +317,7 @@ function buildNodes() {
 // solo / hide buttons on every node
 const sh = (id, noHide) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">Solo</i>${noHide ? '' : '<i class="hd" title="Hide this node">Hide</i>'}</span>`;
 const nodeEl = (id) => nodeView.querySelector(`.nb[data-id="${id}"]`)?.closest('.node');
-const isHidden = (id) => id === 'MP' ? false : id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
+const isHidden = (id) => id === 'MP' || id === 'FL' ? false : id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
 function toggleHide(id) {
   if (id === 'OV') { ovHideIn.value = isHidden(id) ? '0' : '1'; ovHideIn.dispatchEvent(new Event('input')); }
   else { const k = +id.slice(1); hdIn[k].value = String(hideBits(k) ^ { L: 1, A: 2, O: 4 }[id[0]]); hdIn[k].dispatchEvent(new Event('input')); }
@@ -333,7 +350,7 @@ function selectNode(grp) {
 // duplicate: the new level starts as a copy of the last one
 function addLevel() {
   const n = nLevels(); if (n >= MAXL) return;
-  for (const key of D5 ? ['w', 'a', 'dl', 'dg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'soft', 'inv']) {
+  for (const key of D5 ? ['w', 'a', 'dl', 'dg', 'rg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'rg', 'soft', 'inv']) {
     const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
     b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input'));
     if (b.cb.checked !== a.cb.checked) b.cb.click();
@@ -386,6 +403,7 @@ function nodeThumbs(now) {
     alphaThumb(k);
   }
   render(5, 0, TWN, THN); grab('tmap', TWN, THN);
+  render(6, 0, TWN, THN); grab('tflip', TWN, THN);
   render(0, 0, 90, 160); grab('tm', 90, 160);
   const tov = document.getElementById('tov'), tm = document.getElementById('tm');
   if (ovOn()) { ovx.drawImage(ovCanvas, 0, 0, 216, 384); }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
@@ -404,7 +422,7 @@ function layoutWires() {
   const g = nodeView.querySelector('.ngrid'); if (!g) return;
   // fit the graph to its column: scale it down (never up), and cancel the empty space the scale leaves
   const z = Math.min(1, (nodeView.clientWidth - 24) / g.offsetWidth);
-  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value].join('|');
+  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + P.on.mfl + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value].join('|');
   if (key === wiresKey) return; wiresKey = key;
   g.style.transform = z < 1 ? `scale(${z})` : ''; g.style.marginRight = (z - 1) * g.offsetWidth + 'px'; g.style.marginBottom = (z - 1) * g.offsetHeight + 'px';
   const r2 = g.getBoundingClientRect();
@@ -422,6 +440,11 @@ function layoutWires() {
   let bus = `M${(mb.left - r2.left) / z},${by} L${bx},${by}`, top = by;
   for (let k = 1; k <= n; k++) { const a = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), false); top = Math.min(top, a[1]); bus += ` M${bx},${a[1]} L${a[0]},${a[1]}`; }
   w += `<path class="bus" d="${bus} M${bx},${by} L${bx},${top}"/>`;
+  // the Flip feeds every Lines node: a bus up their left side
+  const fe = nodeView.querySelector('.node.flip').getBoundingClientRect(), fx = (fe.left - r2.left) / z - 5, fy = (fe.top - r2.top + fe.height / 2) / z;
+  let fbus = `M${fx + 5},${fy} L${fx},${fy}`, ftop = fy;
+  for (let k = 1; k <= n; k++) { const l = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Lines"]`), false); ftop = Math.min(ftop, l[1]); fbus += ` M${fx},${l[1]} L${l[0]},${l[1]}`; }
+  w += `<path class="fbus${P.on.mfl === false ? ' dash' : ''}" d="${fbus} M${fx},${fy} L${fx},${ftop}"/>`;
   nodeView.querySelector('.wires').innerHTML = w;
 }
 setInterval(layoutNodes, 250);                           // cheap: two layout reads, the SVG only when the size changed
@@ -470,7 +493,8 @@ function loop(now) {
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
   nodeThumbs(now);
-  if (solo.has('MP')) render(5);                         // the Map soloed: its six greys
+  if (solo.has('FL')) render(6);                         // the Flip soloed: its bands
+  else if (solo.has('MP')) render(5);                         // the Map soloed: its six greys
   else render(0);                                        // the full picture (solo / hide applied), always last
   frames++; drawMs += performance.now() - t0;
 }

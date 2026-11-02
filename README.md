@@ -59,3 +59,6 @@ One [Map] node holds the 6-level map every Alpha reads: luma -> Black point / Wh
 
 ## Dollar 4 and Dollar 5 (v2.27)
 Fractal Lines is renamed Dollar 4 (still ?view=flines, so saved setups and presets keep working). Dollar 5 (?view=dollar5) is the same engine (lines.js, D5 flag) with the Depth style's depth map as the Map (near = white, far = black; Depth detail, Depth smoothing and Smoothness on the Map node; one depth model shared with the Overlay). Each layer's Alpha is an AE Extract on the depth map: Black point, White point, Black softness, White softness, sliding over the whole 0-255 range. No Invert, no channel buttons.
+
+## Rough edges and Flip (v2.28)
+Each Lines node: Rough edges px (default 0.8; 0 = clean), the stroke edges and dash ends wander like ink on paper (two scales of value noise fixed to the paper). Flip node (Dollar 4 and 5): the map cut into Bands (2-6, default 4; -1 box = off); at every band edge the sine breaks and flips direction, for every level. Click Flip to see its bands (white = one way, black = flipped).

@@ -120,6 +120,8 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .wires path.dash { stroke-dasharray:4 4; }
 #nodes .wires path.bus { stroke:#7fa7c9; stroke-width:1.5; }
 #nodes .node.map { border-color:#7fa7c9; }
+#nodes .wires path.fbus { stroke:#b98ad6; stroke-width:1.5; }
+#nodes .node.flip { border-color:#b98ad6; }
 
 
 /* node edit (Fractal Lines): the panel shows the selected node's sliders only */
