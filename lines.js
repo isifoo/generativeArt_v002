@@ -7,17 +7,17 @@ import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noC
 const OW = 1080, OH = 1920;
 const SLIDERS = [
   { head: 'Lines' },
-  { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 9, off: '9' },
-  { id: 'flw', label: 'Width px (darkest)', min: 0.3, max: 30, step: 0.1, val: 6, off: 'hairlines' },
-  { id: 'flt', label: 'Thinnest (lights)', min: 0, max: 1, step: 0.01, val: 0.08, off: 'one width everywhere' },
-  { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: 0, off: '0' },
+  { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '9' },
+  { id: 'flw', label: 'Width px (darkest)', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
+  { id: 'flt', label: 'Thinnest (lights)', min: 0, max: 1, step: 0.01, val: 0, off: 'one width everywhere' },
+  { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
   { head: 'Wave (the shape of the lines)' },
-  { id: 'flam', label: 'Wave height px', min: 0, max: 200, step: 0.5, val: 80, off: 'straight lines' },
-  { id: 'flsc', label: 'Wave length px', min: 20, max: 3000, step: 5, val: 1000, off: '1000' },
+  { id: 'flam', label: 'Wave height px', min: 0, max: 200, step: 0.5, val: 86.5, off: 'straight lines' },
+  { id: 'flsc', label: 'Wave length px', min: 20, max: 3000, step: 5, val: 1090, off: '1000' },
   { id: 'flcx', label: 'Variation', min: 0, max: 6, step: 0.05, val: 0.8, off: 'identical waves' },
-  { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0, off: 'still' },
+  { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0.06, off: 'still' },
   { id: 'flfl', label: 'Flip with contrast', min: 0, max: 1, step: 0.01, val: 1, off: 'same wave everywhere' },
-  { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 120, off: '120' },
+  { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 90, off: '120' },
   { head: 'Tone' },
   { id: 'flc', label: 'Contrast', min: 0.2, max: 5, step: 0.01, val: 1.3, off: '1' },
   { id: 'flb', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
@@ -139,7 +139,7 @@ $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-initDefaults('.r3');                                       // r3: wave 80 / 1000, flips with contrast (v1.98)
+initDefaults('.r4');                                       // r4: defaults = Gerry's settings (v2.00)
 window.__state = { P, val, tone };
 requestAnimationFrame(loop);
 versionCheck();
