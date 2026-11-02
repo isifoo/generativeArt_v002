@@ -17,7 +17,8 @@ export const VERSIONS = [
   { id: 'dollar1', label: 'Dollar 1' },
   { id: 'dollar2', label: 'Dollar 2' },
   { id: 'dollar3', label: 'Dollar 3' },
-  { id: 'flines', label: 'Fractal Lines' },
+  { id: 'flines', label: 'Dollar 4' },                          // was Fractal Lines (id kept: saved setups, presets)
+  { id: 'dollar5', label: 'Dollar 5' },                         // Dollar 4 with the depth map as the matte
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';

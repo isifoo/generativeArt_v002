@@ -8,10 +8,14 @@
 // [Overlay] on top of everything: the Dollar engraving (Dollar 1's layer, with its v2.02 look: soft, detailed), multiplied over
 //           the picture at 'Strength'. It has its own depth model, loaded only when the overlay is on.
 // + Duplicate level copies the last level into a new one (up to 6). Click a node: Edit shows that node's settings only.
-import { $, vid, cam, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
+import { $, vid, cam, VIEW, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
 import { createDepthModel } from './depthmodel.js';
 
 const OW = 1080, OH = 1920, MAXL = 6;
+// DOLLAR 4 (?view=flines) reads the 6-level luma Map (channels per layer). DOLLAR 5 (?view=dollar5) is the same engine with the
+// DEPTH map (the Depth style's model) as the Map, and an AE Extract on it per layer (black / white point + softness).
+const D5 = VIEW === 'dollar5';
+let depthNew = false;
 let dirty = true;                                          // settings changed: upload uniforms and refresh the node thumbnails
 // the fixed look of the lines (Gerry's settings, v2.00)
 const LOOK = { thin: 0, amp: 86.5, len: 1090, drift: 0.06, con: 1.3, bri: 0, smooth: 0.6 };
@@ -25,19 +29,29 @@ for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { id: `l${k}dl`, label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
   { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
   { head: `Level${pad(k)} Alpha` },
-  { id: `l${k}soft`, label: 'Softness % (own)', min: 0, max: 100, step: 1, val: 0, on: false, off: "uses the Map's softness" },
-  { id: `l${k}inv`, label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
+  ...(D5 ? [                                               // Extract on the depth map: the layer shows where depth is between the points
+    { id: `l${k}bp`, label: 'Black point', min: 0, max: 255, step: 1, val: 0, off: '0' },
+    { id: `l${k}wp`, label: 'White point', min: 0, max: 255, step: 1, val: 255, off: '255' },
+    { id: `l${k}bs`, label: 'Black softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+    { id: `l${k}ws`, label: 'White softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  ] : [
+    { id: `l${k}soft`, label: 'Softness % (own)', min: 0, max: 100, step: 1, val: 0, on: false, off: "uses the Map's softness" },
+    { id: `l${k}inv`, label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
+  ]),
 );
 // MAP: the one 6-level map every Alpha reads (luma -> black / white point -> smoothing -> six bands, 0 darkest .. 5 lightest)
-SLIDERS.push({ head: 'Map' },
+const DEPTH_SL = [
+  { id: 'dpq', label: 'Depth detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
+  { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' }];
+if (D5) SLIDERS.push({ head: 'Map' },                     // the depth map: near = white, far = black
+  ...DEPTH_SL, { id: 'msm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 8, off: 'raw (no smoothing)' });
+else SLIDERS.push({ head: 'Map' },
   { id: 'mbp', label: 'Black point', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'mwp', label: 'White point', min: 0, max: 255, step: 1, val: 255, off: '255' },
   { id: 'msm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 16, off: 'raw (no smoothing)' },
   { id: 'msf', label: 'Softness %', min: 0, max: 100, step: 1, val: 0, off: 'hard edges' });
 SLIDERS.push({ head: 'Overlay' },
-  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
-  { id: 'dpq', label: 'Depth detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
-  { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' });
+  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' }, ...(D5 ? [] : DEPTH_SL));   // Dollar 5: one depth model, its sliders on the Map
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -70,8 +84,8 @@ const TW = 180, TH = 320, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
 const tone = new Float32Array(TN).fill(1), shape = new Float32Array(TN), stmp = new Float32Array(TN);
-function blurInto(dst, r) {
-  dst.set(tone);
+function blurInto(dst, r, src = tone) {
+  dst.set(src);
   for (let pass = 0; pass < 2; pass++) {
     for (let y = 0; y < TH; y++) { let a = 0; const o = y * TW;
       for (let x = -r; x <= r; x++) a += dst[o + Math.min(TW - 1, Math.max(0, x))];
@@ -83,9 +97,16 @@ function blurInto(dst, r) {
 }
 let toneReady = false, upload = false;
 let lastSm = -1;
+const dmap = new Float32Array(TN);                         // Dollar 5: the depth map at the map's size (0 far .. 1 near)
+function takeDepth(M) {
+  if (!M.out || !M.w) return;
+  for (let y = 0, i = 0; y < TH; y++) { const sy = Math.min(M.h - 1, Math.floor((y + 0.5) * M.h / TH)) * M.w;
+    for (let x = 0; x < TW; x++, i++) dmap[i] = M.out[sy + Math.min(M.w - 1, Math.floor((x + 0.5) * M.w / TW))]; }
+}
 function reshape() {                                       // the Map's smoothing (px of the 1080 frame) -> tone map px
   const px = num('msm', 0); lastSm = px;
-  if (px < 1) shape.set(tone); else blurInto(shape, Math.max(1, Math.round(px / (OW / TW) / 2)));
+  const src = D5 ? dmap : tone;
+  if (px < 1) shape.set(src); else blurInto(shape, Math.max(1, Math.round(px / (OW / TW) / 2)), src);
   upload = true;
 }
 function updateTone() {
@@ -119,7 +140,9 @@ uniform int Lshow[${MAXL}];                              // what the Master show
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
 uniform vec3 mapP;                                       // the Map: black point, white point, softness (0..1 of half a band)
-uniform float Lsoft[${MAXL}];                            // per level softness override (-1 = use the Map's)
+uniform float Lsoft[${MAXL}];
+uniform vec4 Le[${MAXL}];                                // Dollar 5 Extract: black point, white point, black softness, white softness
+const bool D5 = ${D5};                            // per level softness override (-1 = use the Map's)
 uniform float Linv[${MAXL}];
 uniform int Lmask[${MAXL}];                              // level channels on (bit k = grey level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
@@ -130,7 +153,10 @@ float band(float L, bool inv) {                          // the Map: 0 (darkest)
   return inv ? 6.0 - g : g;
 }
 float alpha(int i, float L, float aa) {
-  if ((Lhide[i] & 2) != 0 || Lmask[i] == 0) return 1.0; // Alpha hidden / no channel chosen: fully on
+  if ((Lhide[i] & 2) != 0) return 1.0;                    // Alpha hidden: fully on
+  if (D5) { vec4 e = Le[i];                              // AE Extract on the depth map (aa: anti-aliasing in map units)
+    return smoothstep(e.x - e.z - aa, e.x, L) * (1.0 - smoothstep(e.y, e.y + e.w + aa, L)); }
+  if (Lmask[i] == 0) return 1.0; // Alpha hidden / no channel chosen: fully on
   float g = band(L, Linv[i] > 0.5);
   float s = max(Lsoft[i] < 0.0 ? mapP.z : Lsoft[i], 0.0) * 0.5 + aa;   // edge half-width in bands (+ anti-aliasing)
   float a = 0.0;
@@ -164,7 +190,7 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
 void main() {
   vec2 px = uv * res;
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
-  float L = texture(shapeT, uv).r * 255.0, aa = 0.5 * fwidth(band(L, false)) + 1e-3;   // anti-aliasing, in bands
+  float L = texture(shapeT, uv).r * 255.0, aa = D5 ? fwidth(L) + 1e-3 : 0.5 * fwidth(band(L, false)) + 1e-3;   // anti-aliasing (map units / bands)
   // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
   float v = 1.0;
@@ -178,7 +204,7 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
-  else if (mode == 5) v = floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map: six greys, 0 black .. 5 white
+  else if (mode == 5) v = D5 ? L / 255.0 : floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map (depth: near white)   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
   else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
   else v = 1.0 - level(solo, px, dk, L, aa, mode == 2);
@@ -198,7 +224,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'Lsoft', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -206,17 +232,18 @@ const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.
 const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT') };
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
-const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
+const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
 gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
     uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang);
-    uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
+    if (D5) { uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0); }
+    else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
@@ -249,7 +276,7 @@ function buildNodes() {
   }
   h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay${sh('OV')}</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
     <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><span class="mmode">Multiply</span><canvas id="tm" width="90" height="160"></canvas></div>
-    <div class="node map" data-grp="Map" style="grid-row:${n + 1};grid-column:2"><b>Map${sh('MP', true)}</b><canvas id="tmap" width="${TWN}" height="${THN}"></canvas></div>
+    <div class="node map" data-grp="Map" style="grid-row:${n + 1};grid-column:2"><b>${D5 ? 'Depth map' : 'Map'}${sh('MP', true)}</b><canvas id="tmap" width="${TWN}" height="${THN}"></canvas></div>
     <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
@@ -306,7 +333,7 @@ function selectNode(grp) {
 // duplicate: the new level starts as a copy of the last one
 function addLevel() {
   const n = nLevels(); if (n >= MAXL) return;
-  for (const key of ['w', 'a', 'dl', 'dg', 'soft', 'inv']) {
+  for (const key of D5 ? ['w', 'a', 'dl', 'dg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'soft', 'inv']) {
     const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
     b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input'));
     if (b.cb.checked !== a.cb.checked) b.cb.click();
@@ -331,11 +358,15 @@ const mapBand = (sv, inv) => {                           // the Map, as in the s
 };
 function alphaThumb(k) {                                 // the same matte as the shader (black = lines show), at node size
   const inv = num(`l${k}inv`, 0) > 0.5, lm = levelMask(k), d = aimg.data;
+  const bp = num(`l${k}bp`, 0), wp = num(`l${k}wp`, 255), bs = num(`l${k}bs`, 0), ws = num(`l${k}ws`, 0);
   const s = (P.on[`l${k}soft`] === false ? num('msf', 0) : P[`l${k}soft`]) / 100 * 0.5 + 0.02;
   for (let y = 0, i = 0; y < THN; y++) { const row = Math.floor((y + 0.5) * TH / THN) * TW;
     for (let x = 0; x < TWN; x++, i += 4) {
       let a = 1;
-      if (lm && !(hideBits(k) & 2)) {
+      if (D5 && !(hideBits(k) & 2)) {                     // Extract on the depth map
+        const L = shape[row + Math.floor((x + 0.5) * TW / TWN)] * 255;
+        a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
+      } else if (!D5 && lm && !(hideBits(k) & 2)) {
         const g = mapBand(shape[row + Math.floor((x + 0.5) * TW / TWN)], inv); a = 0;
         for (let c = 0; c < 6; c++) if ((lm >> c) & 1) a += (c === 0 ? 1 : ss(c - s, c + s, g)) - (c === 5 ? 0 : ss(c + 1 - s, c + 1 + s, g));
         a = Math.min(1, Math.max(0, a));
@@ -399,8 +430,8 @@ $('#nodebtn').onclick = () => { nodeView.hidden = !nodeView.hidden; dirty = true
 nodeView.hidden = (() => { try { return localStorage.getItem('genArt002.nodes') === '0'; } catch { return false; } })();
 $('#nodebtn').classList.toggle('on', !nodeView.hidden);
 
-// ---------------------------------------------------------------- level channels: six grey buttons per level (like RGB channels)
-for (let k = 1; k <= MAXL; k++) {
+// ---------------------------------------------------------------- level channels: six grey buttons per level (like RGB channels; Dollar 4 only)
+for (let k = 1; k <= (D5 ? 0 : MAXL); k++) {
   const row = document.createElement('div'); row.className = 'chanrow';
   row.innerHTML = '<span class="lab">Levels as matte</span><span class="chans">' +
     // labels: 0 = darkest .. 5 = lightest (left to right). Stored values keep the internal index k (5 = darkest), so saved setups are unchanged.
@@ -430,6 +461,7 @@ const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
   if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); thumbDirty = true; fresh = true; }
+  if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; }   // a new depth map
   if (!toneReady || now - lastDraw < FRAME_MS) return;
   const speed = master('motion', 0);                      // Master > Motion speed (0 = still)
   if (!fresh && !dirty && !thumbDirty && speed <= 0) { lastT = now; return; }   // nothing changed: no redraw at all
@@ -454,14 +486,15 @@ ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none;opacity:0'
 canvas.after(ovCanvas);
 const ovSmall = document.createElement('canvas'); ovSmall.width = 216; ovSmall.height = 384; const ovx = ovSmall.getContext('2d'); ovx.imageSmoothingQuality = 'high';
 const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1' && (!solo.size || solo.has('OV'));   // visible: worked out only then
-const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => {});
+const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; });
 let ovLoaded = false;
 function ovStyle() { ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
 // the look Gerry liked (v2.02): the engraving's own defaults; depth detail 22, smoothing 0.85, strength 0.6
 window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: null };
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
 for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);   // capture (restored settings too), read after the slider has updated
-setInterval(() => { if (ovOn() && DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100);   // depth for the overlay, only while it is on
+if (D5) { ovLoaded = true; DM.load(); }                    // Dollar 5: the depth map is the Map, always on
+setInterval(() => { if ((D5 || ovOn()) && DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100);   // depth for the overlay, only while it is on
 nodeView.hidden = false;
 if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();

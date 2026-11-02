@@ -1,6 +1,6 @@
 # Generative Art v002
 
-Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), Depth Dots (the Ishihara packing driven by the depth map) Depth 3D (the depth map as a lit 3D surface, three.js) Dollar (banknote engraving, one pixel shader) Dollar 2 (engraving from the engraver's procedure: clean tone, smooth direction field, evenly spaced streamlines) Dollar 3 (V1's growing line, thinner and calmer, with dash levels) and Fractal Lines (parallel lines with a gentle controllable wave, width by tone).
+Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), Depth Dots (the Ishihara packing driven by the depth map) Depth 3D (the depth map as a lit 3D surface, three.js) Dollar (banknote engraving, one pixel shader) Dollar 2 (engraving from the engraver's procedure: clean tone, smooth direction field, evenly spaced streamlines) Dollar 3 (V1's growing line, thinner and calmer, with dash levels) and Dollar 4 (was Fractal Lines: node based line levels on a 6-level luma map) and Dollar 5 (Dollar 4 with the depth map as the matte).
 
 - Live: https://isifoo.github.io/generativeArt_v002/
 - Settings button opens the slider panel. Every slider has a max field and a -1 on/off box.
@@ -56,3 +56,6 @@ Master > Motion speed (universal, CSS variable --motion), default 0 = still. Wit
 
 ## Map node (v2.26)
 One [Map] node holds the 6-level map every Alpha reads: luma -> Black point / White point -> Smoothness (px) -> six bands (0 darkest .. 5 lightest), with Softness (% of a band at each on/off edge). Click Map to see its six greys. Each Alpha keeps its channels and Invert, plus Softness (own), off by default = the Map's softness; tick its box to override for that layer. The per-layer Black / White point and softness sliders are gone (they did nothing with channels on).
+
+## Dollar 4 and Dollar 5 (v2.27)
+Fractal Lines is renamed Dollar 4 (still ?view=flines, so saved setups and presets keep working). Dollar 5 (?view=dollar5) is the same engine (lines.js, D5 flag) with the Depth style's depth map as the Map (near = white, far = black; Depth detail, Depth smoothing and Smoothness on the Map node; one depth model shared with the Overlay). Each layer's Alpha is an AE Extract on the depth map: Black point, White point, Black softness, White softness, sliding over the whole 0-255 range. No Invert, no channel buttons.
