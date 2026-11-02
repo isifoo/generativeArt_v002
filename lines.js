@@ -2,6 +2,7 @@
 // Line k sits where phi = k:  phi = (p . n + height * sin(2 pi * (p . t) / length + variation * fbm(p / length))) / spacing.
 // Every line has the same wave, so the distance between lines stays uniform; 'variation' lets the wave differ a little from
 // place to place (fractal noise on its phase), 'drift' moves it slowly. The width carries the tone (thick in the darks).
+import { createDepthModel } from './depthmodel.js';
 import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
 
 const OW = 1080, OH = 1920;
@@ -18,6 +19,10 @@ const SLIDERS = [
   { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0.06, off: 'still' },
   { id: 'flfl', label: 'Flip with contrast', min: 0, max: 1, step: 0.01, val: 1, off: 'same wave everywhere' },
   { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 90, off: '120' },
+  { head: 'Mask (Dollar 1 = alpha of the lines)' },
+  { id: 'flmk', label: 'Mask strength', min: 0, max: 1, step: 0.01, val: 1, off: 'no mask: lines everywhere' },
+  { id: 'flmg', label: 'Mask gain', min: 0.2, max: 10, step: 0.05, val: 3.5, off: '1' },
+  { id: 'flms', label: 'Mask softness px', min: 0, max: 64, step: 1, val: 10, off: 'crisp' },
   { head: 'Tone' },
   { id: 'flc', label: 'Contrast', min: 0.2, max: 5, step: 0.01, val: 1.3, off: '1' },
   { id: 'flb', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
@@ -63,6 +68,8 @@ const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D toneT, softT;
+uniform sampler2D maskT;                                 // Dollar 1's picture: its ink is the alpha of the lines
+uniform float mStr, mGain, mLod;
 uniform float flip;                                     // how much the wave turns over between dark (1) and light (0)
 uniform vec2 res;
 uniform float sp, wid, thin, ang, amp, scl, oct, evo, con, bri;   // amp = wave height px, scl = wave length px, oct = variation
@@ -87,6 +94,11 @@ void main() {
   float dk = clamp((0.5 - tn) * con + 0.5 - bri, 0.0, 1.0);          // darkness with contrast and brightness
   float hw = 0.5 * wid * mix(thin, 1.0, dk);                        // width follows the darkness
   float inkv = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
+  if (mStr > 0.0) {                                                  // alpha from Dollar 1: lines show only where it has ink
+    vec3 mc = textureLod(maskT, vec2(uv.x, 1.0 - uv.y), mLod).rgb;
+    float a = clamp((1.0 - dot(mc, vec3(0.299, 0.587, 0.114))) * mGain, 0.0, 1.0);
+    inkv *= mix(1.0, a, mStr);
+  }
   o = vec4(mix(paper, ink, inkv), 1.0);
 }`;
 function prog(vs, fs) {
@@ -102,7 +114,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'softT', 'maskT', 'mStr', 'mGain', 'mLod', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const tt = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -111,6 +123,10 @@ const ts = gl.createTexture(); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 gl.uniform1i(U.softT, 1);
+const tm = gl.createTexture(); gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tm);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.uniform1i(U.maskT, 2);
 let pal = getPalette(); onPalette((p) => { pal = p; });
 let evoT = 0, lastT = performance.now();
 function render() {
@@ -120,6 +136,13 @@ function render() {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ts); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, soft); upload = false;
   }
   gl.uniform1f(U.flip, num('flfl', 0));
+  const mOn = P.on.flmk !== false && P.flmk > 0 && DM.M.have;
+  gl.uniform1f(U.mStr, mOn ? P.flmk : 0); gl.uniform1f(U.mGain, num('flmg', 1));
+  gl.uniform1f(U.mLod, P.on.flms !== false && P.flms > 0 ? Math.log2(P.flms) : 0);
+  if (mOn) {                                                         // Dollar 1's frame -> mask texture (mipmaps = softness)
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tm);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, maskCanvas); gl.generateMipmap(gl.TEXTURE_2D);
+  }
   const usePal = $('#e2pal').checked;
   gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 10)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.thin, num('flt', 1)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
   gl.uniform1f(U.amp, num('flam', 0)); gl.uniform1f(U.scl, num('flsc', 520)); gl.uniform1f(U.oct, num('flcx', 0)); gl.uniform1f(U.evo, evoT * 6.2831853);
@@ -129,17 +152,24 @@ function render() {
 }
 
 // ---------------------------------------------------------------- loop
-let lastMedia = -1;
+let lastMedia = -1, lastDepth = -1;
 function loop() {
   requestAnimationFrame(loop);
   if (vid.readyState >= 2 && vid.videoWidth && (vid.currentTime !== lastMedia || dirty)) { lastMedia = vid.currentTime; updateTone(); }
+  if (vid.readyState >= 2 && DM.M.ready && !DM.M.busy && (!DM.M.have || vid.currentTime !== lastDepth)) { lastDepth = vid.currentTime; DM.infer(); }
   if (toneReady) render();
 }
 $('#settings').addEventListener('input', () => { dirty = true; }, true);
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-initDefaults('.r4');                                       // r4: defaults = Gerry's settings (v2.00)
+// the mask: Dollar 1 (Dollar's engraving shader) runs hidden into its own canvas, sharing our video and one depth model
+const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id === 'dpq' ? 22 : id === 'dps' ? 0.85 : def), () => {});
+const maskCanvas = document.createElement('canvas');
+window.__dollarOverlay = { canvas: maskCanvas, dm: DM, on: () => P.on.flmk !== false && P.flmk > 0 };
+await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
+DM.load();
+initDefaults('.r5');                                       // r5: Dollar 1 mask added (v2.03)
 window.__state = { P, val, tone };
 requestAnimationFrame(loop);
 versionCheck();
