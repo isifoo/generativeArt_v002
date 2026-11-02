@@ -60,7 +60,7 @@ const SLIDERS = [
 // OVERLAY mode: Dollar 2 can run this engraving as a layer on top of its lines (window.__dollarOverlay = { canvas, dm }).
 // Then it draws into that canvas, shares Dollar 2's video and depth model, and leaves camera, defaults and stats to Dollar 2.
 const OV = window.__dollarOverlay || null;
-const SL = OV ? SLIDERS.filter((s) => !['dpq', 'dps'].includes(s.id)).map((s) => (s.head ? { head: 'Overlay Dollar: ' + s.head } : s)) : SLIDERS;
+const SL = OV ? SLIDERS.filter((s) => !['dpq', 'dps'].includes(s.id)).map((s) => (s.head ? { head: 'Overlay Dollar: ' + s.head } : (OV.defaults && s.id in OV.defaults ? { ...s, val: OV.defaults[s.id] } : s))) : SLIDERS;   // OV.defaults: the host's own starting values
 const P = {};
 const val = buildSliders(SL, P);
 const num = (id, def) => (val(id) < 0 && P.on[id] === false ? def : P[id]);   // value, or the default when its box is off

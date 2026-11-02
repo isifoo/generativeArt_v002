@@ -49,7 +49,8 @@ const SLIDERS = [
 // without Dollar 2's own lines and sliders.
 const D1 = VIEW === 'dollar1';
 const P = { pal: false };
-const val = buildSliders(D1 ? SLIDERS.filter((s) => ['e2oo', 'dpq', 'dps'].includes(s.id) || /^(Overlay|Depth)/.test(s.head || '')) : SLIDERS, P);
+const D1VAL = { e2oo: 0.57, dpq: 37, dps: 0.97 };                // Dollar 1 defaults (Gerry's settings, v2.04)
+const val = buildSliders(D1 ? SLIDERS.filter((s) => ['e2oo', 'dpq', 'dps'].includes(s.id) || /^(Overlay|Depth)/.test(s.head || '')).map((s) => (s.id in D1VAL ? { ...s, val: D1VAL[s.id] } : s)) : SLIDERS, P);
 const offv = (id) => P.on[id] === false;
 const num = (id, def) => (offv(id) ? def : P[id]);
 
@@ -371,10 +372,12 @@ ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none';
 canvas.after(ovCanvas);
 const ovOn = () => !offv('e2oo') && P.e2oo > 0;
 const ovStyle = () => { ovCanvas.style.opacity = ovOn() ? P.e2oo : 0; };
-window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn };
+// Dollar 1's look (Gerry's settings, v2.04); Dollar 2's overlay keeps Dollar's own values
+const D1_LOOK = { enlo: 0, enl: 0, enc: 3.02, enb: 0.41 };
+window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: D1 ? D1_LOOK : null };
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
 ovStyle(); $('#e2oo').addEventListener('input', ovStyle); $('#e2oo').parentElement.querySelector('.onoff input').addEventListener('change', ovStyle);
-initDefaults(D1 ? '.d1' : '.r3');                                       // r3: Dollar overlay sliders added (v1.93)                                       // r2: near-straight lines by default (v1.92)
+initDefaults(D1 ? '.d2' : '.r3');                           // Dollar 1 d2: Gerry's settings as defaults (v2.04)                                       // r3: Dollar overlay sliders added (v1.93)                                       // r2: near-straight lines by default (v1.92)
 
 window.__state = { M, P, val, tone, rebuild, get buildMs() { return buildMs; }, get nLines() { return nLines; } };
 DM.load();

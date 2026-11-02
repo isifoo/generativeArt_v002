@@ -164,12 +164,13 @@ $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
 // the mask: Dollar 1 (Dollar's engraving shader) runs hidden into its own canvas, sharing our video and one depth model
-const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id === 'dpq' ? 22 : id === 'dps' ? 0.85 : def), () => {});
+const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id === 'dpq' ? 37 : id === 'dps' ? 0.97 : def), () => {});   // Dollar 1's depth settings
 const maskCanvas = document.createElement('canvas');
-window.__dollarOverlay = { canvas: maskCanvas, dm: DM, on: () => P.on.flmk !== false && P.flmk > 0 };
+window.__dollarOverlay = { canvas: maskCanvas, dm: DM, on: () => P.on.flmk !== false && P.flmk > 0,
+  defaults: { enlo: 0, enl: 0, enc: 3.02, enb: 0.41 } };   // the mask is Dollar 1: same look (v2.04)
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
 DM.load();
-initDefaults('.r5');                                       // r5: Dollar 1 mask added (v2.03)
+initDefaults('.r6');                                       // r6: Dollar 1 mask with Dollar 1's look (v2.04)
 window.__state = { P, val, tone };
 requestAnimationFrame(loop);
 versionCheck();
