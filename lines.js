@@ -222,7 +222,7 @@ function buildNodes() {
   selectNode(selected); dirty = true; wiresKey = '';
 }
 // solo / hide buttons on every node
-const sh = (id) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">S</i><i class="hd" title="Hide this node">H</i></span>`;
+const sh = (id) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">Solo</i><i class="hd" title="Hide this node">Hide</i></span>`;
 const nodeEl = (id) => nodeView.querySelector(`.nb[data-id="${id}"]`)?.closest('.node');
 const isHidden = (id) => id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
 function toggleHide(id) {

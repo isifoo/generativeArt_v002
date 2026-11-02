@@ -122,11 +122,11 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 body.nodeedit #palette, body.nodeedit h2.foldh, body.nodeedit #settings > .cols, body.nodeedit #settings > p.note,
 body.nodeedit #settings > h2, body.nodeedit #settings > .bar, body.nodeedit #stats { display:none !important; }
 #nodes .node.sel { border-color:#e8b04a; box-shadow:0 0 0 1px #e8b04a; }
-#nodes .nb { display:inline-flex; gap:3px; margin-left:6px; vertical-align:middle; }
-#nodes .nb i { font-style:normal; font-size:10px; line-height:1; padding:2px 4px; border-radius:3px; background:#2a2a2a; color:#aaa; cursor:pointer; }
-#nodes .nb i:hover { color:#fff; }
-#nodes .nb i.so.on { background:#e8b04a; color:#111; }
-#nodes .nb i.hd.on { background:#c0392b; color:#fff; }
+#nodes .nb { display:flex; justify-content:center; gap:4px; margin:4px 0 0; }
+#nodes .nb i { font-style:normal; font-size:11px; font-weight:600; line-height:1; padding:4px 7px; border-radius:4px; background:#333; border:1px solid #5a5a5a; color:#eee; cursor:pointer; }
+#nodes .nb i:hover { border-color:#e8b04a; }
+#nodes .nb i.so.on { background:#e8b04a; border-color:#e8b04a; color:#111; }
+#nodes .nb i.hd.on { background:#c0392b; border-color:#c0392b; color:#fff; }
 #nodes .node.hid canvas { opacity:.25; }
 #nodes.soloing .node.solo { box-shadow:0 0 0 2px #e8b04a; }
 
