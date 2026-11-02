@@ -38,3 +38,6 @@ Every Fractal Lines node (Lines, Alpha, LevelNN, Overlay) has S (solo: the stage
 
 ## Presets (v2.19)
 Edit > Presets loads a ready-made look from presets/ (presets/index.json lists them per style); only the settings it names change. Fractal Lines "Five levels" (also the site default, site-defaults.json): channel 5 = darkest. L1 width 3, angle -6, continuous, channels 4-5; L2 same at 24 deg (30 deg turn), 4-5; L3 width 1.6, -6, dashes 24/8, 2-3; L4 width 1.6, 24 deg, dashes 14/22, 0-1; L5 width 1.4, dots 2.5/6 shifted half a spacing (between the lines), 0-1. The Overlay is left as it is.
+
+## Channel labels (v2.20)
+The Levels-as-matte buttons read 0 = darkest .. 5 = lightest, left to right. Only the labels changed: stored values (l{k}ch) keep the internal index (5 = darkest), so saved setups, files and presets are unchanged. In those labels the Five levels preset is: L1, L2 on 0-1; L3 on 2-3; L4, L5 on 4-5.

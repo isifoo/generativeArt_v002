@@ -326,7 +326,8 @@ $('#nodebtn').classList.toggle('on', !nodeView.hidden);
 for (let k = 1; k <= MAXL; k++) {
   const row = document.createElement('div'); row.className = 'chanrow';
   row.innerHTML = '<span class="lab">Levels as matte</span><span class="chans">' +
-    [0, 1, 2, 3, 4, 5].map((j) => `<button type="button" data-k="${j}" style="--g:${Math.round(255 - j * 255 / 5)}"><i></i>${j}</button>`).join('') + '</span>';
+    // labels: 0 = darkest .. 5 = lightest (left to right). Stored values keep the internal index k (5 = darkest), so saved setups are unchanged.
+    [0, 1, 2, 3, 4, 5].map((j) => { const k = 5 - j; return `<button type="button" data-k="${k}" style="--g:${Math.round(255 - k * 255 / 5)}"><i></i>${j}</button>`; }).join('') + '</span>';
   [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Alpha`).nextElementSibling.append(row);
   const inp = chIn[k], sel = () => new Set((inp.value || '').split(',').filter((x) => x !== '').map(Number));
   const show = () => { const s = sel(); row.querySelectorAll('button').forEach((b) => b.classList.toggle('on', s.has(+b.dataset.k))); };
