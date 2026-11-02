@@ -62,3 +62,6 @@ Fractal Lines is renamed Dollar 4 (still ?view=flines, so saved setups and prese
 
 ## Rough edges and Flip (v2.28)
 Each Lines node: Rough edges px (default 0.8; 0 = clean), the stroke edges and dash ends wander like ink on paper (two scales of value noise fixed to the paper). Flip node (Dollar 4 and 5): the map cut into Bands (2-6, default 4; -1 box = off); at every band edge the sine breaks and flips direction, for every level. Click Flip to see its bands (white = one way, black = flipped).
+
+## Flip by detail (v2.29)
+The Flip node now reads the image details, not bands of the map: detail = 0.5 + Detail contrast x (fine luma - luma blurred at Detail size px). Darker-than-around details (band 0, then every other band) flip: the wave turns over, the lines turn by Turn deg (default 45), and with Cross (default on) the turned lines are added to the first set, so dark details are cross-hatched. Defaults: Bands 2, Detail size 90 px, Detail contrast 4.5, Turn 45, Cross on.

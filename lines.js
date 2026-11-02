@@ -52,7 +52,14 @@ else SLIDERS.push({ head: 'Map' },
   { id: 'msm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 16, off: 'raw (no smoothing)' },
   { id: 'msf', label: 'Softness %', min: 0, max: 100, step: 1, val: 0, off: 'hard edges' });
 // FLIP: the map cut into bands; at every band edge the sine breaks and flips direction (every level's lines)
-SLIDERS.push({ head: 'Flip' }, { id: 'mfl', label: 'Bands', min: 2, max: 6, step: 1, val: 4, off: 'no flip' });
+// FLIP by DETAIL: local contrast of the image (a spot lighter or darker than its surroundings at 'Detail size'); the sine
+// breaks and flips at every detail edge, so the line direction itself draws the eyes, brows, wrinkles, hair.
+SLIDERS.push({ head: 'Flip' },
+  { id: 'mfl', label: 'Bands', min: 2, max: 6, step: 1, val: 2, off: 'no flip' },
+  { id: 'mfd', label: 'Detail size px', min: 6, max: 200, step: 1, val: 90, off: '90' },
+  { id: 'mfg', label: 'Detail contrast', min: 1, max: 30, step: 0.5, val: 4.5, off: '4.5' },
+  { id: 'mfx', label: 'Cross (darker details)', min: 0, max: 1, step: 1, val: 1, off: 'no cross: the turned lines replace' },
+  { id: 'mft', label: 'Turn deg', min: -90, max: 90, step: 1, val: 45, off: 'no turn: only the wave flips' });   // flipped areas also turn their lines
 SLIDERS.push({ head: 'Overlay' },
   { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' }, ...(D5 ? [] : DEPTH_SL));   // Dollar 5: one depth model, its sliders on the Map
 const P = {};
@@ -87,6 +94,7 @@ const TW = 180, TH = 320, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
 const tone = new Float32Array(TN).fill(1), shape = new Float32Array(TN), stmp = new Float32Array(TN);
+const fineA = new Float32Array(TN), coarseA = new Float32Array(TN), detail = new Float32Array(TN).fill(0.5);   // Flip: the detail map
 function blurInto(dst, r, src = tone) {
   dst.set(src);
   for (let pass = 0; pass < 2; pass++) {
@@ -116,8 +124,15 @@ function updateTone() {
   drawCover(tx, TW, TH);
   const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady ? 1 - LOOK.smooth : 1;
   for (let i = 0; i < TN; i++) tone[i] += ((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - tone[i]) * k;
-  reshape();
+  reshape(); makeDetail();
   toneReady = true; upload = true;
+}
+let detKey = '';
+function makeDetail() {                                    // detail = 0.5 + contrast x (fine - surroundings), 0..1
+  const size = num('mfd', 90), gain = num('mfg', 4.5); detKey = size + '|' + gain;
+  blurInto(fineA, 1, tone); blurInto(coarseA, Math.max(1, Math.round(size / (OW / TW) / 2)), tone);
+  for (let i = 0; i < TN; i++) detail[i] = Math.min(1, Math.max(0, 0.5 + gain * (fineA[i] - coarseA[i])));
+  upload = true;
 }
 
 // ---------------------------------------------------------------- shader: all levels in one pass
@@ -134,7 +149,7 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D toneT, shapeT;
+uniform sampler2D toneT, shapeT, detT;
 uniform vec2 res;
 uniform float sp, evo, pxs;                              // pxs: picture units per screen pixel (1 at full size, more when drawn smaller)
 uniform int nL, solo, mode;                              // mode 0: all levels stacked; 1: level 'solo' lines only; 2: level 'solo' lines x alpha; 3: its alpha only; 4: blank paper
@@ -142,7 +157,9 @@ uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 al
 uniform int Lshow[${MAXL}];                              // what the Master shows of each level: 1 lines alone, 2 matte alone, 4 lines x matte
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
-uniform float flipN;                                     // Flip: number of bands (0 = off)
+uniform float flipN;
+uniform vec2 flipR;
+uniform float flipX;                                     // Flip Cross: 1 = flipped areas keep the first lines too (cross-hatch)                                      // Flip: the turn of the lines in flipped areas (cos, sin)                                     // Flip: number of bands (0 = off)
 float FL = 1.0;                                          // this pixel's wave direction (+1 / -1), set in main
 uniform vec3 mapP;                                       // the Map: black point, white point, softness (0..1 of half a band)
 uniform float Lsoft[${MAXL}];
@@ -179,16 +196,11 @@ float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 *
 float rough(vec2 px, float r) {                          // ink on paper: the edge wanders by up to r px (two scales of noise, fixed to the paper)
   return r * ((vnoise(px / 5.0) - 0.5) * 1.5 + (vnoise(px / 1.8 + 17.0) - 0.5) * 0.7);
 }
-float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
-  float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
-  if (a < 0.004) return 0.0;
-  vec4 p = Lp[i];
-  float hw = 0.5 * p.x;                                  // full Width wherever the matte lets the level through: the six channels decide visibility, not the luma
-  if (hw < 0.05) return 0.0;
-  vec2 t = Lt[i].xy, nrm = vec2(-t.y, t.x);
+float strokes(int i, vec2 px, vec2 t, float fl, vec4 p, float hw) {   // one set of lines in direction t (fl: wave direction)
+  vec2 nrm = vec2(-t.y, t.x);
   float s = dot(px, t), arg = K * s + evo;
-  float phi = (dot(px, nrm) + FL * AMP * sin(arg)) / sp + p.w;   // FL: the Flip node turns the wave over in every other band   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
-  float g = length(nrm + (FL * AMP * K * cos(arg)) * t) / sp; // its exact slope (no screen derivatives, so levels can be skipped)
+  float phi = (dot(px, nrm) + fl * AMP * sin(arg)) / sp + p.w;   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
+  float g = length(nrm + (fl * AMP * K * cos(arg)) * t) / sp;    // its exact slope (no screen derivatives, so levels can be skipped)
   float rg = Lt[i].z, rn = rg > 0.0 ? rough(px, rg) : 0.0;
   float d = abs(fract(phi + 0.5) - 0.5) / g + rn;        // distance to the nearest line, picture px (+ rough edges)
   float ink = 1.0 - smoothstep(hw - 0.6 * pxs, hw + 0.6 * pxs, d);
@@ -197,6 +209,21 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
     float per = p.y + p.z, u = mod(s, per);
     ink *= mix(smoothstep(-0.6 * pxs, 0.6 * pxs, min(u, p.y - u) - rn), p.y / per, smoothstep(1.0, 2.0, pxs / per * 2.0));
   }
+  return ink;
+}
+float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
+  float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
+  if (a < 0.004) return 0.0;
+  vec4 p = Lp[i];
+  float hw = 0.5 * p.x;                                  // full Width wherever the matte lets the level through
+  if (hw < 0.05) return 0.0;
+  vec2 t = Lt[i].xy;
+  if (FL > 0.0) return strokes(i, px, t, 1.0, p, hw) * a;
+  // FLIPPED detail (darker than its surroundings): the wave flips and the lines turn; with Cross the turned lines are ADDED
+  // to the first set (cross-hatching), so dark details get darker: contrast from the details
+  vec2 tt = vec2(t.x * flipR.x - t.y * flipR.y, t.x * flipR.y + t.y * flipR.x);
+  float ink = strokes(i, px, tt, -1.0, p, hw);
+  if (flipX > 0.5) ink = 1.0 - (1.0 - ink) * (1.0 - strokes(i, px, t, 1.0, p, hw));
   return ink * a;
 }
 void main() {
@@ -205,9 +232,9 @@ void main() {
   float L = texture(shapeT, uv).r * 255.0, aa = D5 ? fwidth(L) + 1e-3 : 0.5 * fwidth(band(L, false)) + 1e-3;   // anti-aliasing (map units / bands)
   // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
-  float mt = D5 ? L / 255.0 : 1.0 - band(L, false) / 6.0;   // the map, 0 (dark / far) .. 1 (light / near)
-  float fb = flipN > 0.0 ? floor(min(mt * flipN, flipN - 0.001)) : 0.0;
-  FL = mod(fb, 2.0) < 0.5 ? 1.0 : -1.0;
+  float dt = texture(detT, uv).r;                         // the detail map: < 0.5 darker than around, > 0.5 lighter
+  float fb = flipN > 0.0 ? floor(min(dt * flipN, flipN - 0.001)) : 0.0;
+  FL = mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;                   // band 0 (the darker details) flips, then every other band
   float v = 1.0;
   if (mode == 0) {
     for (int i = 0; i < ${MAXL}; i++) {
@@ -219,7 +246,7 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
-  else if (mode == 6) v = flipN > 0.0 ? (FL > 0.0 ? 1.0 : 0.0) : 1.0;   // the Flip bands: white = one way, black = flipped
+  else if (mode == 6) v = flipN > 0.0 ? (FL > 0.0 ? 1.0 : 0.0) : 1.0;   // the Flip bands: black = flipped (the darker details)
   else if (mode == 5) v = D5 ? L / 255.0 : floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map (depth: near white)   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
   else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
@@ -240,12 +267,12 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, TW, TH); gl.uniform1i(U[name], unit); return t; };
-const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT') };
+const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT'), det: tex(2, 'detT') };
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
 const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
@@ -259,13 +286,14 @@ function setUniforms() {                                  // only when a setting
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
-  if (num('msm', 0) !== lastSm && toneReady) reshape(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  if (num('msm', 0) !== lastSm && toneReady) reshape();
+  if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
 function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
   if (upload) {
-    for (const [k, unit, arr] of [['tone', 0, tone], ['shape', 1, shape]]) {
+    for (const [k, unit, arr] of [['tone', 0, tone], ['shape', 1, shape], ['det', 2, detail]]) {
       gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, T[k]); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TW, TH, gl.RED, gl.FLOAT, arr);
     }
     upload = false;
