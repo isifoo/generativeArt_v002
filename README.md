@@ -41,3 +41,6 @@ Edit > Presets loads a ready-made look from presets/ (presets/index.json lists t
 
 ## Channel labels (v2.20)
 The Levels-as-matte buttons read 0 = darkest .. 5 = lightest, left to right. Only the labels changed: stored values (l{k}ch) keep the internal index (5 = darkest), so saved setups, files and presets are unchanged. In those labels the Five levels preset is: L1, L2 on 0-1; L3 on 2-3; L4, L5 on 4-5.
+
+## Studio layout and AE solo / hide (v2.22)
+Fractal Lines: nodes on the left (the graph scales to fit), the picture always centred, the settings always open on the right; phones stack picture, nodes, settings. Solo / Hide work like After Effects: several nodes can be soloed at once (the Master shows only them, each as itself: Lines = lines alone, Alpha = the matte, Level = lines x matte, Overlay); Hide always wins, also over Solo; wires from hidden nodes are dashed; removing a level clears its solo. Tested with pixel comparisons (drift frozen): 29 checks.
