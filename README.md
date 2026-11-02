@@ -35,3 +35,6 @@ An [Overlay] node feeds the Master: the Dollar engraving (engrave.js in overlay 
 
 ## Solo and hide (v2.18)
 Every Fractal Lines node (Lines, Alpha, LevelNN, Overlay) has S (solo: the stage shows only that node; one at a time; click again to leave) and H (hide: Lines or the level hidden = the level is left out; Alpha hidden = no matte; Overlay hidden = off and not computed). Hides are saved with the setup; solo is a viewing tool and is not saved.
+
+## Presets (v2.19)
+Edit > Presets loads a ready-made look from presets/ (presets/index.json lists them per style); only the settings it names change. Fractal Lines "Five levels" (also the site default, site-defaults.json): channel 5 = darkest. L1 width 3, angle -6, continuous, channels 4-5; L2 same at 24 deg (30 deg turn), 4-5; L3 width 1.6, -6, dashes 24/8, 2-3; L4 width 1.6, 24 deg, dashes 14/22, 0-1; L5 width 1.4, dots 2.5/6 shifted half a spacing (between the lines), 0-1. The Overlay is left as it is.

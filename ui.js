@@ -272,6 +272,16 @@ export function initDefaults(rev = '') {
       apply(o.settings || o); if (o.palette) restorePalette(o.palette); flash($('#loadfile'), 'Loaded');
     } catch { flash($('#loadfile'), 'Not a settings file'); }
   };
+  // PRESETS: ready-made looks in presets/ (presets/index.json lists them per style). Only the settings a preset names change.
+  fetch('presets/index.json?t=' + Date.now(), { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((ix) => {
+    const list = ix && ix[VIEW]; if (!list || !list.length) return;
+    const sel = $('#preset'); for (const p of list) sel.add(new Option(p.name, p.file)); sel.hidden = false;
+    sel.onchange = async () => {
+      const f = sel.value; sel.value = ''; if (!f) return;
+      try { const o = await (await fetch('presets/' + f + '?t=' + Date.now(), { cache: 'no-store' })).json(); apply(o.settings); if (o.palette) restorePalette(o.palette); flash($('#loadfile'), 'Preset loaded'); }
+      catch { flash($('#loadfile'), 'Preset failed'); }
+    };
+  }).catch(() => {});
   // everything saved in this browser, as one JSON: send it to make it the site's defaults for every visitor (site-defaults.json)
   $('#copydef').onclick = async () => {
     if (!owner.on) return;
