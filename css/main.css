@@ -126,6 +126,7 @@ body.nodeedit #settings > h2, body.nodeedit #settings > .bar, body.nodeedit #sta
 /* level channels (Fractal Lines alpha): six grey buttons, on = part of the matte */
 .chanrow { display:grid; grid-template-columns:118px 1fr; gap:8px; align-items:center; margin:10px 0 4px; }
 .chanrow .lab { color:var(--fg); }
+.halfrow { display:flex; gap:8px; cursor:pointer; }
 .chans { display:flex; gap:5px; flex-wrap:wrap; }
 .chans button { display:flex; align-items:center; gap:5px; padding:4px 8px; }
 .chans button i { width:14px; height:14px; border-radius:3px; background:rgb(var(--g),var(--g),var(--g)); border:1px solid #666; }

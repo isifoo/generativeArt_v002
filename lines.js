@@ -42,8 +42,8 @@ syncMaster();
 
 // saved with the defaults: how many levels, and each level's matte channels
 const hidden = (id, v) => { const i = document.createElement('input'); i.type = 'hidden'; i.id = id; i.value = v; i.dataset.save = ''; $('#settings').prepend(i); return i; };
-const nIn = hidden('flevels', '1'), chIn = [];
-for (let k = 1; k <= MAXL; k++) chIn[k] = hidden(`l${k}ch`, '');
+const nIn = hidden('flevels', '1'), chIn = [], hfIn = [];
+for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); }   // half: lines moved half a spacing
 const nLevels = () => Math.min(MAXL, Math.max(1, parseInt(nIn.value) || 1));
 
 // ---------------------------------------------------------------- tone (CPU, small and soft)
@@ -89,7 +89,7 @@ uniform sampler2D toneT, shapeT;
 uniform vec2 res;
 uniform float sp, evo, pxs;                              // pxs: picture units per screen pixel (1 at full size, more when drawn smaller)
 uniform int nL, solo, mode;                              // mode 0: all levels stacked; 1: level 'solo' lines only; 2: level 'solo' lines x alpha
-uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, -
+uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
 uniform vec4 Le[${MAXL}];                                // Extract: black point, white point, black softness, white softness
 uniform float Linv[${MAXL}];
@@ -112,7 +112,7 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   if (hw < 0.05) return 0.0;
   vec2 t = Lt[i].xy, nrm = vec2(-t.y, t.x);
   float s = dot(px, t), arg = K * s + evo;
-  float phi = (dot(px, nrm) + AMP * sin(arg)) / sp;     // a pure sine, shifted by one spacing per line
+  float phi = (dot(px, nrm) + AMP * sin(arg)) / sp + p.w;   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
   float g = length(nrm + (AMP * K * cos(arg)) * t) / sp; // its exact slope (no screen derivatives, so levels can be skipped)
   float d = abs(fract(phi + 0.5) - 0.5) / g;             // distance to the nearest line, picture px
   float ink = 1.0 - smoothstep(hw - 0.6 * pxs, hw + 0.6 * pxs, d);
@@ -159,7 +159,7 @@ gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
-    uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0);
+    uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang);
     uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0);
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k);
@@ -216,6 +216,7 @@ function addLevel() {
     if (b.cb.checked !== a.cb.checked) b.cb.click();
   }
   chIn[n + 1].value = chIn[n].value; chIn[n + 1].dispatchEvent(new Event('input'));
+  hfIn[n + 1].value = hfIn[n].value; hfIn[n + 1].dispatchEvent(new Event('input'));
   nIn.value = String(n + 1); selected = `Level${pad(n + 1)} Lines`; buildNodes();
 }
 function removeLevel() { const n = nLevels(); if (n <= 1) return; nIn.value = String(n - 1); buildNodes(); }
@@ -284,6 +285,16 @@ for (let k = 1; k <= MAXL; k++) {
   const show = () => { const s = sel(); row.querySelectorAll('button').forEach((b) => b.classList.toggle('on', s.has(+b.dataset.k))); };
   row.querySelectorAll('button').forEach((b) => { b.onclick = () => { const s = sel(), j = +b.dataset.k; if (s.has(j)) s.delete(j); else s.add(j); inp.value = [...s].sort().join(','); show(); dirty = true; }; });
   inp.addEventListener('input', show); show();
+}
+
+// ---------------------------------------------------------------- half-spacing shift: one checkbox per level (in its Lines node)
+for (let k = 1; k <= MAXL; k++) {
+  const row = document.createElement('label'); row.className = 'chanrow halfrow';
+  row.innerHTML = '<input type="checkbox"> <span class="lab">Shift half a spacing (lines in the middle of the original ones)</span>';
+  [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Lines`).nextElementSibling.append(row);
+  const cb = row.querySelector('input'), inp = hfIn[k];
+  cb.onchange = () => { inp.value = cb.checked ? '1' : '0'; dirty = true; };
+  inp.addEventListener('input', () => { cb.checked = inp.value === '1'; dirty = true; });
 }
 
 // ---------------------------------------------------------------- loop
