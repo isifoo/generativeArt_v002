@@ -16,9 +16,9 @@ const SLIDERS = [
   { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
   { id: 'flw', label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
   { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
-  { head: 'Alpha (Extract)' },
+  { head: 'Alpha (Extract, 6 grades)' },
   { id: 'xbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 128, off: '255' },
+  { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
   { id: 'xbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xws', label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xinv', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
@@ -90,7 +90,10 @@ void main() {
   float lo = smoothstep(bp - bs - aa, bp, L);
   float hi = 1.0 - smoothstep(wp, wp + ws + aa, L);
   float a = lo * hi; if (inv > 0.5) a = 1.0 - a;
-  if (useAlpha > 0.5) inkv *= a;
+  // 6 grades of shade (0 light .. 5 dark): the luma cut into flat steps; the lines get grade / 5 of their strength
+  float g6 = (1.0 - L / 255.0) * 5.0, ag = fwidth(g6) + 1e-3, gq = (floor(g6) + smoothstep(0.5 - ag, 0.5 + ag, fract(g6))) / 5.0;
+  if (inv > 0.5) gq = 1.0 - gq;
+  if (useAlpha > 0.5) inkv *= a * gq;
   o = vec4(mix(vec3(1.0), vec3(0.07), inkv), 1.0);
 }`;
 function prog(vs, fs) {
@@ -149,7 +152,8 @@ function nodeThumbs() {
   nodeView.style.left = document.body.classList.contains('editing') && room > nodeView.offsetWidth + 16 ? (sr.right + 16) + 'px' : '';
   thumb('nOut').drawImage(canvas, 0, 0, 90, 160);
   render(false); thumb('nLines').drawImage(canvas, 0, 0, 90, 160); render(true);
-  for (let i = 0; i < TN; i++) { const v = (1 - ext(shape[i] * 255)) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
+  const inv = num('xinv', 0) > 0.5;                          // thumbnail: Extract x 6 grades (black = full lines)
+  for (let i = 0; i < TN; i++) { let g = Math.round((1 - shape[i]) * 5) / 5; if (inv) g = 1 - g; const v = (1 - ext(shape[i] * 255) * g) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
   acx.putImageData(aimg, 0, 0); thumb('nAlpha').drawImage(acv, 0, 0, 90, 160);
   const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
   const o = pt($('#nOut'), false);
@@ -178,7 +182,7 @@ function loop() {
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-initDefaults('.r9');                                       // r9: two nodes, minimal sliders (v2.07)
+initDefaults('.r10');                                      // r10: alpha in 6 grades (v2.08)
 window.__state = { P, tone, shape };
 requestAnimationFrame(loop);
 versionCheck();
