@@ -50,7 +50,12 @@ syncMaster();
 // saved with the defaults: how many levels, and each level's matte channels
 const hidden = (id, v) => { const i = document.createElement('input'); i.type = 'hidden'; i.id = id; i.value = v; i.dataset.save = ''; $('#settings').prepend(i); return i; };
 const nIn = hidden('flevels', '1'), chIn = [], hfIn = [];
-for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); }   // half: lines moved half a spacing
+const hdIn = [];                                           // hide flags per level: 1 = Lines hidden, 2 = Alpha hidden, 4 = the level hidden
+for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); hdIn[k] = hidden(`l${k}hide`, '0'); }   // half: lines moved half a spacing
+const ovHideIn = hidden('ovhide', '0');
+// SOLO (not saved, a viewing tool): '' or a node id: L3 (Lines of level 3), A3 (its Alpha), O3 (the level), OV (the overlay)
+let solo = '';
+const hideBits = (k) => parseInt(hdIn[k].value) || 0;
 const nLevels = () => Math.min(MAXL, Math.max(1, parseInt(nIn.value) || 1));
 
 // ---------------------------------------------------------------- tone (CPU, small and soft)
@@ -95,7 +100,8 @@ in vec2 uv; out vec4 o;
 uniform sampler2D toneT, shapeT;
 uniform vec2 res;
 uniform float sp, evo, pxs;                              // pxs: picture units per screen pixel (1 at full size, more when drawn smaller)
-uniform int nL, solo, mode;                              // mode 0: all levels stacked; 1: level 'solo' lines only; 2: level 'solo' lines x alpha
+uniform int nL, solo, mode;                              // mode 0: all levels stacked; 1: level 'solo' lines only; 2: level 'solo' lines x alpha; 3: its alpha only; 4: blank paper
+uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 alpha hidden (matte = everything), 4 level hidden
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
 uniform vec4 Le[${MAXL}];                                // Extract: black point, white point, black softness, white softness
@@ -103,17 +109,19 @@ uniform float Linv[${MAXL}];
 uniform int Lmask[${MAXL}];                              // level channels on (bit k = grey level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
 const float TAU = 6.2831853, K = TAU / LEN;
-float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
-  float a = 1.0;
-  if (withAlpha) {                                       // the matte first: where it is 0 the lines are never worked out
+float alpha(int i, float L, float aa) {
+    if ((Lhide[i] & 2) != 0) return 1.0;                 // Alpha node hidden: no matte
     vec4 e = Le[i];
+    float a;
     a = smoothstep(e.x - e.z - aa, e.x, L) * (1.0 - smoothstep(e.y, e.y + e.w + aa, L));   // AE Extract
     float g6 = (1.0 - L / 255.0) * 6.0;
     if (Linv[i] > 0.5) { a = 1.0 - a; g6 = 6.0 - g6; }
     int k = clamp(int(floor(g6)), 0, 5);
-    a *= Lmask[i] == 0 ? float(k) / 5.0 : float((Lmask[i] >> k) & 1);
-    if (a < 0.004) return 0.0;
-  }
+    return a * (Lmask[i] == 0 ? float(k) / 5.0 : float((Lmask[i] >> k) & 1));
+}
+float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
+  float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
+  if (a < 0.004) return 0.0;
   vec4 p = Lp[i];
   float hw = 0.5 * p.x * mix(THIN, 1.0, dk);
   if (hw < 0.05) return 0.0;
@@ -135,7 +143,9 @@ void main() {
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
   float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
   float ink = 0.0;
-  if (mode == 0) { for (int i = 0; i < ${MAXL}; i++) { if (i >= nL || ink > 0.996) break; ink = 1.0 - (1.0 - ink) * (1.0 - level(i, px, dk, L, aa, true)); } }
+  if (mode == 0) { for (int i = 0; i < ${MAXL}; i++) { if (i >= nL || ink > 0.996) break; if ((Lhide[i] & 5) != 0) continue; ink = 1.0 - (1.0 - ink) * (1.0 - level(i, px, dk, L, aa, true)); } }
+  else if (mode == 3) ink = alpha(solo, L, aa);
+  else if (mode == 4) ink = 0.0;
   else ink = level(solo, px, dk, L, aa, mode == 2);
   if (pxs > 4.0) ink = 1.0 - pow(1.0 - ink, 4.0);         // node thumbnails: darker, so the shapes read at that size
   o = vec4(mix(vec3(1.0), vec3(0.07), ink), 1.0);
@@ -153,7 +163,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Le', 'Linv', 'Lmask']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Le', 'Linv', 'Lmask', 'Lhide']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -161,7 +171,7 @@ const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.
 const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT') };
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
-const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL);
+const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL);
 gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
@@ -169,9 +179,9 @@ function setUniforms() {                                  // only when a setting
     uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang);
     uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0);
-    uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k);
+    uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform4fv(U.Le, uLe); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform4fv(U.Le, uLe); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
 function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
@@ -194,21 +204,42 @@ function buildNodes() {
   let h = '<svg class="wires"></svg>';
   for (let k = 1; k <= n; k++) {
     const L = 'Level' + pad(k);
-    h += `<div class="node" data-grp="${L} Lines" style="grid-row:${k};grid-column:1"><b>Lines</b><canvas id="tl${k}" width="${TWN}" height="${THN}"></canvas></div>
-      <div class="node" data-grp="${L} Alpha" style="grid-row:${k};grid-column:2"><b>Alpha</b><canvas id="ta${k}" width="${TWN}" height="${THN}"></canvas></div>
-      <div class="node out" data-out="${k}" style="grid-row:${k};grid-column:4"><b>${L}${k === n && n > 1 ? ' <i class="rm" title="Remove this level">x</i>' : ''}</b><canvas id="to${k}" width="${TWN}" height="${THN}"></canvas></div>`;
+    h += `<div class="node" data-grp="${L} Lines" style="grid-row:${k};grid-column:1"><b>Lines${sh('L' + k)}</b><canvas id="tl${k}" width="${TWN}" height="${THN}"></canvas></div>
+      <div class="node" data-grp="${L} Alpha" style="grid-row:${k};grid-column:2"><b>Alpha${sh('A' + k)}</b><canvas id="ta${k}" width="${TWN}" height="${THN}"></canvas></div>
+      <div class="node out" data-out="${k}" style="grid-row:${k};grid-column:4"><b>${L}${sh('O' + k)}${k === n && n > 1 ? ' <i class="rm" title="Remove this level">x</i>' : ''}</b><canvas id="to${k}" width="${TWN}" height="${THN}"></canvas></div>`;
   }
-  h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
+  h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay${sh('OV')}</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
     <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><canvas id="tm" width="90" height="160"></canvas></div>
     <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = h;
   nodeView.style.gridTemplateColumns = 'auto auto 36px auto 36px auto';
   for (const el of nodeView.querySelectorAll('.node[data-grp]')) el.onclick = () => { selectNode(el.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
+  for (const b of nodeView.querySelectorAll('.nb i')) b.onclick = (e) => { e.stopPropagation(); (b.classList.contains('so') ? toggleSolo : toggleHide)(b.parentElement.dataset.id); };
+  showFlags();
   const rm = nodeView.querySelector('.rm'); if (rm) rm.onclick = (e) => { e.stopPropagation(); removeLevel(); };
   nodeView.querySelector('.addlvl').onclick = addLevel;
   if (!nodeView.querySelector(`[data-grp="${selected}"]`)) selected = 'Level01 Lines';
   selectNode(selected); dirty = true; wiresKey = '';
 }
+// solo / hide buttons on every node
+const sh = (id) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">S</i><i class="hd" title="Hide this node">H</i></span>`;
+const nodeEl = (id) => nodeView.querySelector(`.nb[data-id="${id}"]`)?.closest('.node');
+const isHidden = (id) => id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
+function toggleHide(id) {
+  if (id === 'OV') { ovHideIn.value = isHidden(id) ? '0' : '1'; ovHideIn.dispatchEvent(new Event('input')); }
+  else { const k = +id.slice(1); hdIn[k].value = String(hideBits(k) ^ { L: 1, A: 2, O: 4 }[id[0]]); hdIn[k].dispatchEvent(new Event('input')); }
+}
+function toggleSolo(id) { solo = solo === id ? '' : id; showFlags(); }
+function showFlags() {
+  for (const b of nodeView.querySelectorAll('.nb')) {
+    const id = b.dataset.id, el = b.closest('.node');
+    el.classList.toggle('hid', isHidden(id)); el.classList.toggle('solo', solo === id);
+    b.querySelector('.so').classList.toggle('on', solo === id); b.querySelector('.hd').classList.toggle('on', isHidden(id));
+  }
+  nodeView.classList.toggle('soloing', !!solo);
+  dirty = true; if (typeof ovStyle === 'function') ovStyle();
+}
+for (const inp of [...hdIn.slice(1), ovHideIn]) inp.addEventListener('input', showFlags);   // restored settings too
 function selectNode(grp) {
   selected = grp;
   // the Overlay node shows its own group and the engraving's tone group (the rest of the engraving keeps its v2.02 values)
@@ -227,6 +258,7 @@ function addLevel() {
   }
   chIn[n + 1].value = chIn[n].value; chIn[n + 1].dispatchEvent(new Event('input'));
   hfIn[n + 1].value = hfIn[n].value; hfIn[n + 1].dispatchEvent(new Event('input'));
+  hdIn[n + 1].value = hdIn[n].value; hdIn[n + 1].dispatchEvent(new Event('input'));
   nIn.value = String(n + 1); selected = `Level${pad(n + 1)} Lines`; buildNodes();
 }
 function removeLevel() { const n = nLevels(); if (n <= 1) return; nIn.value = String(n - 1); buildNodes(); }
@@ -326,7 +358,9 @@ function loop(now) {
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
   nodeThumbs(now);
-  render(0);                                             // the full picture, always last
+  if (!solo) render(0);                                  // the full picture, always last
+  else if (solo === 'OV') render(4);                       // overlay alone: blank paper under it
+  else render({ L: 1, A: 3, O: 2 }[solo[0]], +solo.slice(1) - 1);
   frames++; drawMs += performance.now() - t0;
 }
 $('#restart').onclick = () => { evoT = 0; };
@@ -340,10 +374,10 @@ const ovCanvas = document.createElement('canvas');
 ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none;opacity:0';
 canvas.after(ovCanvas);
 const ovSmall = document.createElement('canvas'); ovSmall.width = 216; ovSmall.height = 384; const ovx = ovSmall.getContext('2d'); ovx.imageSmoothingQuality = 'high';
-const ovOn = () => P.on.ovs !== false && P.ovs > 0;
+const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1';
 const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => {});
 let ovLoaded = false;
-function ovStyle() { ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
+function ovStyle() { ovCanvas.style.opacity = !ovOn() || (solo && solo !== 'OV') ? 0 : solo === 'OV' ? 1 : num('ovs', 0); if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
 // the look Gerry liked (v2.02): the engraving's own defaults; depth detail 22, smoothing 0.85, strength 0.6
 window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: null };
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));

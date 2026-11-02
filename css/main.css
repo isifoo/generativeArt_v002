@@ -107,7 +107,7 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .node { position:relative; background:#242424; border:1px solid #444; border-radius:6px; padding:4px; cursor:pointer; text-align:center; }
 #nodes .node:hover { border-color:#e8b04a; }
 #nodes .node b { display:block; font-size:10px; font-weight:600; color:#ddd; margin:0 0 4px; letter-spacing:.03em; }
-#nodes .node canvas { display:block; width:90px; height:160px; background:#fff; border-radius:3px; }
+#nodes .node canvas { display:block; margin:0 auto; width:90px; height:160px; background:#fff; border-radius:3px; }
 #nodes .node.out { cursor:default; }
 #nodes .node canvas[width="54"] { width:54px; height:96px; }
 #nodes .node b .rm { font-style:normal; color:#e8b04a; cursor:pointer; padding:0 3px; }
@@ -122,6 +122,13 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 body.nodeedit #palette, body.nodeedit h2.foldh, body.nodeedit #settings > .cols, body.nodeedit #settings > p.note,
 body.nodeedit #settings > h2, body.nodeedit #settings > .bar, body.nodeedit #stats { display:none !important; }
 #nodes .node.sel { border-color:#e8b04a; box-shadow:0 0 0 1px #e8b04a; }
+#nodes .nb { display:inline-flex; gap:3px; margin-left:6px; vertical-align:middle; }
+#nodes .nb i { font-style:normal; font-size:10px; line-height:1; padding:2px 4px; border-radius:3px; background:#2a2a2a; color:#aaa; cursor:pointer; }
+#nodes .nb i:hover { color:#fff; }
+#nodes .nb i.so.on { background:#e8b04a; color:#111; }
+#nodes .nb i.hd.on { background:#c0392b; color:#fff; }
+#nodes .node.hid canvas { opacity:.25; }
+#nodes.soloing .node.solo { box-shadow:0 0 0 2px #e8b04a; }
 
 /* level channels (Fractal Lines alpha): six grey buttons, on = part of the matte */
 .chanrow { display:grid; grid-template-columns:118px 1fr; gap:8px; align-items:center; margin:10px 0 4px; }

@@ -32,3 +32,6 @@ Every change is saved in this browser automatically (once a second, and when the
 
 ## Fractal Lines Overlay node (v2.17)
 An [Overlay] node feeds the Master: the Dollar engraving (engrave.js in overlay mode, the soft and detailed v2.02 look of Dollar 1: levels clip 2, local contrast 1.65, contrast 1.1, brightness 0.13, depth detail 22, smoothing 0.85) multiplied on top at Strength 0.6. Its panel shows Strength, Depth detail, Depth smoothing and the engraving tone group only. The depth model loads only when the overlay is on; at Strength off nothing runs.
+
+## Solo and hide (v2.18)
+Every Fractal Lines node (Lines, Alpha, LevelNN, Overlay) has S (solo: the stage shows only that node; one at a time; click again to leave) and H (hide: Lines or the level hidden = the level is left out; Alpha hidden = no matte; Overlay hidden = off and not computed). Hides are saved with the setup; solo is a viewing tool and is not saved.
