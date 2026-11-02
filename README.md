@@ -53,3 +53,6 @@ The matte is six fully opaque levels: a channel is on (100%) or off (0%); no cha
 
 ## Motion (v2.25)
 Master > Motion speed (universal, CSS variable --motion), default 0 = still. With motion 0 the picture is redrawn only when something changes (a video frame, a setting, solo / hide), so an idle page does no drawing work.
+
+## Map node (v2.26)
+One [Map] node holds the 6-level map every Alpha reads: luma -> Black point / White point -> Smoothness (px) -> six bands (0 darkest .. 5 lightest), with Softness (% of a band at each on/off edge). Click Map to see its six greys. Each Alpha keeps its channels and Invert, plus Softness (own), off by default = the Map's softness; tick its box to override for that layer. The per-layer Black / White point and softness sliders are gone (they did nothing with channels on).

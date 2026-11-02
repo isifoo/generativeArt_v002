@@ -118,6 +118,8 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .node.master .mmode { color:#bbb; font:10px system-ui, sans-serif; letter-spacing:.04em; }
 #nodes .node.master span { display:block; font:11px ui-monospace, Consolas, monospace; color:#e8b04a; }
 #nodes .wires path.dash { stroke-dasharray:4 4; }
+#nodes .wires path.bus { stroke:#7fa7c9; stroke-width:1.5; }
+#nodes .node.map { border-color:#7fa7c9; }
 
 
 /* node edit (Fractal Lines): the panel shows the selected node's sliders only */

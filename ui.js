@@ -63,13 +63,13 @@ export function buildSliders(list, P) {
       h.onclick = () => { const open = b.hidden; set(open); if (open) folds.delete(key); else folds.add(key); saveFolds(); };
       $('#sliders').append(h, body); continue;
     }
-    P[s.id] = s.val; P.on[s.id] = true;
+    P[s.id] = s.val; P.on[s.id] = s.on !== false;          // s.on === false: the slider starts switched off (-1)
     const row = document.createElement('div'); row.className = 'sl';
     row.innerHTML = `<span class="lab">${s.label}</span>` +
       `<input type="range" id="${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">` +
       `<output></output>` +
       `<input type="number" class="mx" step="any" value="${s.max}" title="Max of the range">` +
-      `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox" checked><i>-1</i></label>`;
+      `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox"${s.on === false ? '' : ' checked'}><i>-1</i></label>`;
     (body || $('#sliders')).append(row);
     const [rng, mx, cb] = row.querySelectorAll('input'), out = row.querySelector('output');
     const show = () => { out.textContent = P.on[s.id] ? fmt(rng.value, s.step) : '-1'; };
@@ -87,6 +87,7 @@ export function buildSliders(list, P) {
       show(); hold.poke();
     });
     rows[s.id] = { rng, mx, cb };
+    if (s.on === false) { rng.disabled = true; row.classList.add('off'); }
     show();
   }
   return (id) => (P.on[id] ? P[id] : -1);              // val(id): the value, or -1 when off

@@ -15,7 +15,6 @@ const OW = 1080, OH = 1920, MAXL = 6;
 let dirty = true;                                          // settings changed: upload uniforms and refresh the node thumbnails
 // the fixed look of the lines (Gerry's settings, v2.00)
 const LOOK = { thin: 0, amp: 86.5, len: 1090, drift: 0.06, con: 1.3, bri: 0, smooth: 0.6 };
-const SHAPE_PX = 16;                                       // the alpha's shapes are smoothed this much, so they are clean
 const pad = (k) => String(k).padStart(2, '0');
 const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
   { id: 'mmot', label: 'Motion speed', min: 0, max: 0.5, step: 0.005, val: 0, off: 'still' }];   // the waves drift; 0 = still
@@ -26,12 +25,15 @@ for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { id: `l${k}dl`, label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
   { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
   { head: `Level${pad(k)} Alpha` },
-  { id: `l${k}bp`, label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: `l${k}wp`, label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
-  { id: `l${k}bs`, label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: `l${k}ws`, label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: `l${k}soft`, label: 'Softness % (own)', min: 0, max: 100, step: 1, val: 0, on: false, off: "uses the Map's softness" },
   { id: `l${k}inv`, label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
 );
+// MAP: the one 6-level map every Alpha reads (luma -> black / white point -> smoothing -> six bands, 0 darkest .. 5 lightest)
+SLIDERS.push({ head: 'Map' },
+  { id: 'mbp', label: 'Black point', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'mwp', label: 'White point', min: 0, max: 255, step: 1, val: 255, off: '255' },
+  { id: 'msm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 16, off: 'raw (no smoothing)' },
+  { id: 'msf', label: 'Softness %', min: 0, max: 100, step: 1, val: 0, off: 'hard edges' });
 SLIDERS.push({ head: 'Overlay' },
   { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
   { id: 'dpq', label: 'Depth detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
@@ -80,11 +82,17 @@ function blurInto(dst, r) {
   }
 }
 let toneReady = false, upload = false;
+let lastSm = -1;
+function reshape() {                                       // the Map's smoothing (px of the 1080 frame) -> tone map px
+  const px = num('msm', 0); lastSm = px;
+  if (px < 1) shape.set(tone); else blurInto(shape, Math.max(1, Math.round(px / (OW / TW) / 2)));
+  upload = true;
+}
 function updateTone() {
   drawCover(tx, TW, TH);
   const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady ? 1 - LOOK.smooth : 1;
   for (let i = 0; i < TN; i++) tone[i] += ((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - tone[i]) * k;
-  blurInto(shape, Math.max(1, Math.round(SHAPE_PX / (OW / TW) / 2)));
+  reshape();
   toneReady = true; upload = true;
 }
 
@@ -110,20 +118,29 @@ uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 al
 uniform int Lshow[${MAXL}];                              // what the Master shows of each level: 1 lines alone, 2 matte alone, 4 lines x matte
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
-uniform vec4 Le[${MAXL}];                                // Extract: black point, white point, black softness, white softness
+uniform vec3 mapP;                                       // the Map: black point, white point, softness (0..1 of half a band)
+uniform float Lsoft[${MAXL}];                            // per level softness override (-1 = use the Map's)
 uniform float Linv[${MAXL}];
 uniform int Lmask[${MAXL}];                              // level channels on (bit k = grey level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
 const float TAU = 6.2831853, K = TAU / LEN;
+float band(float L, bool inv) {                          // the Map: 0 (darkest) .. 6 (lightest edge), continuous
+  float t = clamp((L - mapP.x) / max(1.0, mapP.y - mapP.x), 0.0, 1.0);
+  float g = (1.0 - t) * 6.0;                               // internal: 6 = darkest (channel k = floor, 5 = darkest)
+  return inv ? 6.0 - g : g;
+}
 float alpha(int i, float L, float aa) {
-    if ((Lhide[i] & 2) != 0) return 1.0;                 // Alpha node hidden: no matte
-    vec4 e = Le[i];
-    float a;
-    a = smoothstep(e.x - e.z - aa, e.x, L) * (1.0 - smoothstep(e.y, e.y + e.w + aa, L));   // AE Extract
-    float g6 = (1.0 - L / 255.0) * 6.0;
-    if (Linv[i] > 0.5) { a = 1.0 - a; g6 = 6.0 - g6; }
-    int k = clamp(int(floor(g6)), 0, 5);
-    return a * (Lmask[i] == 0 ? 1.0 : float((Lmask[i] >> k) & 1));   // six fully opaque levels: a channel is on (1) or off (0); none chosen = all on
+  if ((Lhide[i] & 2) != 0 || Lmask[i] == 0) return 1.0; // Alpha hidden / no channel chosen: fully on
+  float g = band(L, Linv[i] > 0.5);
+  float s = max(Lsoft[i] < 0.0 ? mapP.z : Lsoft[i], 0.0) * 0.5 + aa;   // edge half-width in bands (+ anti-aliasing)
+  float a = 0.0;
+  for (int k = 0; k < 6; k++) {                          // six fully opaque channels; soft edges only where on meets off
+    if (((Lmask[i] >> k) & 1) == 0) continue;
+    float lo = k == 0 ? 1.0 : smoothstep(float(k) - s, float(k) + s, g);
+    float hi = k == 5 ? 0.0 : smoothstep(float(k + 1) - s, float(k + 1) + s, g);
+    a += lo - hi;
+  }
+  return clamp(a, 0.0, 1.0);
 }
 float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
@@ -147,7 +164,7 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
 void main() {
   vec2 px = uv * res;
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
-  float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
+  float L = texture(shapeT, uv).r * 255.0, aa = 0.5 * fwidth(band(L, false)) + 1e-3;   // anti-aliasing, in bands
   // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
   float v = 1.0;
@@ -161,6 +178,7 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
+  else if (mode == 5) v = floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
   else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
   else v = 1.0 - level(solo, px, dk, L, aa, mode == 2);
@@ -180,7 +198,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'Lsoft', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -188,17 +206,18 @@ const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.
 const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT') };
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
-const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
+const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL);
 gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
     uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang);
-    uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0);
+    uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform4fv(U.Le, uLe); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  if (num('msm', 0) !== lastSm && toneReady) reshape(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
 }
 function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
@@ -230,7 +249,8 @@ function buildNodes() {
   }
   h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay${sh('OV')}</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
     <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><span class="mmode">Multiply</span><canvas id="tm" width="90" height="160"></canvas></div>
-    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
+    <div class="node map" data-grp="Map" style="grid-row:${n + 1};grid-column:2"><b>Map${sh('MP', true)}</b><canvas id="tmap" width="${TWN}" height="${THN}"></canvas></div>
+    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
   // CLICK A NODE = solo it (and edit it). Click it again: solo off. Another node: solo that one instead. Master: the full picture.
@@ -251,9 +271,9 @@ function buildNodes() {
   selectNode(selected); dirty = true; wiresKey = '';
 }
 // solo / hide buttons on every node
-const sh = (id) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">Solo</i><i class="hd" title="Hide this node">Hide</i></span>`;
+const sh = (id, noHide) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">Solo</i>${noHide ? '' : '<i class="hd" title="Hide this node">Hide</i>'}</span>`;
 const nodeEl = (id) => nodeView.querySelector(`.nb[data-id="${id}"]`)?.closest('.node');
-const isHidden = (id) => id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
+const isHidden = (id) => id === 'MP' ? false : id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
 function toggleHide(id) {
   if (id === 'OV') { ovHideIn.value = isHidden(id) ? '0' : '1'; ovHideIn.dispatchEvent(new Event('input')); }
   else { const k = +id.slice(1); hdIn[k].value = String(hideBits(k) ^ { L: 1, A: 2, O: 4 }[id[0]]); hdIn[k].dispatchEvent(new Event('input')); }
@@ -269,7 +289,7 @@ function showFlags() {
   for (const b of nodeView.querySelectorAll('.nb')) {
     const id = b.dataset.id, el = b.closest('.node');
     el.classList.toggle('hid', isHidden(id)); el.classList.toggle('solo', solo.has(id));
-    b.querySelector('.so').classList.toggle('on', solo.has(id)); b.querySelector('.hd').classList.toggle('on', isHidden(id));
+    b.querySelector('.so').classList.toggle('on', solo.has(id)); b.querySelector('.hd')?.classList.toggle('on', isHidden(id));
   }
   nodeView.classList.toggle('soloing', solo.size > 0); wiresKey = '';
   dirty = true; if (typeof ovStyle === 'function') ovStyle();
@@ -286,7 +306,7 @@ function selectNode(grp) {
 // duplicate: the new level starts as a copy of the last one
 function addLevel() {
   const n = nLevels(); if (n >= MAXL) return;
-  for (const key of ['w', 'a', 'dl', 'dg', 'bp', 'wp', 'bs', 'ws', 'inv']) {
+  for (const key of ['w', 'a', 'dl', 'dg', 'soft', 'inv']) {
     const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
     b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input'));
     if (b.cb.checked !== a.cb.checked) b.cb.click();
@@ -305,15 +325,22 @@ nIn.addEventListener('input', buildNodes);                // Set default restore
 const grab = (id, w, h) => { const c = document.getElementById(id); if (c) c.getContext('2d').drawImage(canvas, 0, canvas.height - h, w, h, 0, 0, w, h); };
 const aimg = new ImageData(TWN, THN);
 const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / Math.max(1e-3, b - a))); return t * t * (3 - 2 * t); };
-function alphaThumb(k) {                                 // the same Extract x channels as the shader (black = lines show), at node size
-  const bp = num(`l${k}bp`, 0), wp = num(`l${k}wp`, 255), bs = num(`l${k}bs`, 0), ws = num(`l${k}ws`, 0), inv = num(`l${k}inv`, 0) > 0.5, lm = levelMask(k), d = aimg.data;
+const mapBand = (sv, inv) => {                           // the Map, as in the shader: 0 .. 6, 6 = darkest edge
+  const bp = num('mbp', 0), wp = Math.max(bp + 1, num('mwp', 255)), t = Math.min(1, Math.max(0, (sv * 255 - bp) / (wp - bp))), g = (1 - t) * 6;
+  return inv ? 6 - g : g;
+};
+function alphaThumb(k) {                                 // the same matte as the shader (black = lines show), at node size
+  const inv = num(`l${k}inv`, 0) > 0.5, lm = levelMask(k), d = aimg.data;
+  const s = (P.on[`l${k}soft`] === false ? num('msf', 0) : P[`l${k}soft`]) / 100 * 0.5 + 0.02;
   for (let y = 0, i = 0; y < THN; y++) { const row = Math.floor((y + 0.5) * TH / THN) * TW;
     for (let x = 0; x < TWN; x++, i += 4) {
-      const sv = shape[row + Math.floor((x + 0.5) * TW / TWN)], L = sv * 255;
-      let a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
-      let g6 = (1 - sv) * 6; if (inv) { a = 1 - a; g6 = 6 - g6; }
-      const kk = Math.min(5, Math.max(0, Math.floor(g6))), g = lm ? (lm >> kk) & 1 : 1;
-      d[i] = d[i + 1] = d[i + 2] = (1 - a * g) * 255; d[i + 3] = 255;
+      let a = 1;
+      if (lm && !(hideBits(k) & 2)) {
+        const g = mapBand(shape[row + Math.floor((x + 0.5) * TW / TWN)], inv); a = 0;
+        for (let c = 0; c < 6; c++) if ((lm >> c) & 1) a += (c === 0 ? 1 : ss(c - s, c + s, g)) - (c === 5 ? 0 : ss(c + 1 - s, c + 1 + s, g));
+        a = Math.min(1, Math.max(0, a));
+      }
+      d[i] = d[i + 1] = d[i + 2] = (1 - a) * 255; d[i + 3] = 255;
     } }
   const c = document.getElementById('ta' + k); if (c) c.getContext('2d').putImageData(aimg, 0, 0);
 }
@@ -327,6 +354,7 @@ function nodeThumbs(now) {
     render(2, k - 1, TWN, THN); grab('to' + k, TWN, THN);
     alphaThumb(k);
   }
+  render(5, 0, TWN, THN); grab('tmap', TWN, THN);
   render(0, 0, 90, 160); grab('tm', 90, 160);
   const tov = document.getElementById('tov'), tm = document.getElementById('tm');
   if (ovOn()) { ovx.drawImage(ovCanvas, 0, 0, 216, 384); }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
@@ -358,6 +386,11 @@ function layoutWires() {
     w += curve(pt(out, true), m, !showBits(k));            // dashed: this level does not reach the Master
   }
   w += curve(pt(nodeView.querySelector('[data-grp="Overlay"]'), true), m, !ovOn());
+  // the Map feeds every Alpha: a bus up the gap left of the Alpha column, a short tap into each Alpha
+  const mp = nodeView.querySelector('.node.map'), mb = mp.getBoundingClientRect(), bx = (mb.left - r2.left) / z - 4, by = (mb.top - r2.top + mb.height / 2) / z;
+  let bus = `M${(mb.left - r2.left) / z},${by} L${bx},${by}`, top = by;
+  for (let k = 1; k <= n; k++) { const a = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), false); top = Math.min(top, a[1]); bus += ` M${bx},${a[1]} L${a[0]},${a[1]}`; }
+  w += `<path class="bus" d="${bus} M${bx},${by} L${bx},${top}"/>`;
   nodeView.querySelector('.wires').innerHTML = w;
 }
 setInterval(layoutNodes, 250);                           // cheap: two layout reads, the SVG only when the size changed
@@ -405,7 +438,8 @@ function loop(now) {
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
   nodeThumbs(now);
-  render(0);                                             // the full picture (solo / hide applied), always last
+  if (solo.has('MP')) render(5);                         // the Map soloed: its six greys
+  else render(0);                                        // the full picture (solo / hide applied), always last
   frames++; drawMs += performance.now() - t0;
 }
 $('#restart').onclick = () => { evoT = 0; dirty = true; };
