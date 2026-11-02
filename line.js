@@ -394,7 +394,8 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
 };
 
 const DRAW = /* wgsl */`
-struct DU { a:vec4f, col:vec4f, b:vec4f, c:vec4f };    // c (Dollar 3 dashes): dash length px, continuous from darkness, shortest dash, on
+struct DU { a:vec4f, col:vec4f, b:vec4f, c:vec4f, d:vec4f };   // c (Dollar 3 dashes): dash length px, continuous from darkness, shortest dash, on
+                                                         // d (Fractal Lines width by tone): on, thinnest share, contrast, brightness
 @group(0) @binding(0) var<uniform> du:DU;
 @group(0) @binding(1) var<storage, read> pts: array<vec2f>;
 @group(0) @binding(2) var<storage, read> mt: array<u32>;
@@ -412,6 +413,13 @@ fn snap(p:vec2f)->vec2f { return select(p, floor(p/du.b.y + 0.5)*du.b.y, du.b.x 
   let d = B - A; let l = length(d);
   var hw = du.a.y; if (l < 1e-4) { hw = 0.0; }
   let dir = d/max(l, 1e-4); let nrm = vec2f(-dir.y, dir.x);
+  // Fractal Lines: the spacing is uniform, so the width carries the tone (thick in the darks, hairline in the lights)
+  if (du.d.x > 0.5) {
+    let m = (P0 + P1)*0.5;
+    let dk = dark[u32(clamp(m.y, 0.0, ${SH - 1}.0))*${SW}u + u32(clamp(m.x, 0.0, ${SW - 1}.0))];
+    let t = clamp((dk - 0.5)*du.d.z + 0.5 + du.d.w, 0.0, 1.0);
+    hw *= mix(du.d.y, 1.0, t);
+  }
   // Dollar 3: the line breaks into dashes in the light tones (short in the lightest, longer in the mids, continuous in the darks).
   // The dash pattern is fixed in space (along the segment direction, offset per line strip) so it does not crawl as the line grows.
   if (du.c.w > 0.5) {
@@ -494,7 +502,7 @@ const B = {
   pos: mk(MAXN * 8, S | CD), mv: mk(MAXN * 16, S), head: mk(GW * GH * 4, S), nxt: mk(MAXN * 4, S),
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
   s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
-  du: mk(64, GPUBufferUsage.UNIFORM | CD),
+  du: mk(80, GPUBufferUsage.UNIFORM | CD),
 };
 const bu = (a) => { const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | CD }); device.queue.writeBuffer(b, 0, new Float32Array(a)); return b; };
 const BU = {
@@ -560,6 +568,8 @@ const IND_PTS = 0, IND_SCAN = 16;
 // One entry per slider. The row (label, slider, value, max field, on/off box) is built from this list.
 // When the box is off the slider reports -1 and the engine uses the "off" behaviour named here.
 const D3 = VIEW === 'dollar3';                             // Dollar 3: V1's mechanism, thinner and calmer, with dash levels
+const FL = VIEW === 'flines';                              // Fractal Lines: V1's line with one uniform spacing; width carries the tone
+const CALM = D3 || FL;                                     // both have their own curve sliders
 const SLIDERS_V1 = [
   { id: 'stroke', label: 'Stroke px', min: 1, max: 6, step: 0.25, val: 4.75, off: 'no line drawn' },
   { id: 'rmin', label: 'Rmin (dark spacing)', min: 2.5, max: 6, step: 0.05, val: 3.05, off: 'same as Rmax: even spacing' },
@@ -587,12 +597,30 @@ const SLIDERS_D3 = [
   { id: 'dfull', label: 'Continuous from darkness', min: 0.1, max: 1, step: 0.01, val: 0.55, off: 'always dashed' },
   { id: 'dmin', label: 'Shortest dash', min: 0.05, max: 0.9, step: 0.01, val: 0.25, off: '0.25' },
 ];
-const SLIDERS = D3 ? SLIDERS_D3 : SLIDERS_V1;
+const SLIDERS_FL = [
+  { head: 'Line' },
+  { id: 'spc', label: 'Spacing px', min: 4, max: 40, step: 0.25, val: 9, off: '9' },
+  { id: 'stroke', label: 'Width px (darkest)', min: 0.5, max: 20, step: 0.05, val: 6, off: 'no line drawn' },
+  { id: 'wmin', label: 'Thinnest (lights)', min: 0, max: 1, step: 0.01, val: 0.08, off: 'one width everywhere' },
+  { head: 'Tone' },
+  { id: 'con', label: 'Contrast', min: 0.2, max: 4, step: 0.01, val: 1.3, off: '1' },
+  { id: 'bri', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
+  { head: 'Curves' },
+  { id: 'tens', label: 'Straightening', min: 0.1, max: 0.98, step: 0.01, val: 0.3, off: 'V1 (0.30)' },
+  { id: 'jit', label: 'Wiggle', min: 0, max: 0.2, step: 0.001, val: 0.05, off: 'V1 (0.05)' },
+  { id: 'smth', label: 'Smoothing passes', min: 3, max: 41, step: 2, val: 3, off: 'V1 (3)' },
+  { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 6, off: 'line frozen' },
+];
+const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : SLIDERS_V1;
 const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
 
 
 // values the engine actually uses, with the -1 (off) rules applied
 function eff() {
+  if (FL) {                                                // one spacing everywhere (output px -> sim px)
+    const r = (P.on.spc ? P.spc : 9) / SCALE;
+    return { stroke: Math.max(0, val('stroke')), rmin: r, rmax: r, gain: 1, noise: 0, iters: Math.max(0, val('iters')) };
+  }
   const rmin = val('rmin'), rmax = val('rmax');
   let r0 = rmin, r1 = rmax;
   if (rmin < 0 && rmax < 0) { r0 = r1 = 8; } else if (rmin < 0) { r0 = r1 = rmax; } else if (rmax < 0) { r0 = r1 = rmin; }
@@ -607,7 +635,7 @@ const sim = { frame: 0, time: 0, boost: 0, pending: 0, running: true, dropped: 0
 const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
-  const tension = D3 && P.on.tens ? P.tens : 0.30, jit = D3 && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
+  const tension = CALM && P.on.tens ? P.tens : 0.30, jit = CALM && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
   U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit]);
   device.queue.writeBuffer(B.u, 0, U);
 }
@@ -773,14 +801,15 @@ function encodeStep(enc) {
 }
 function encodeDraw(enc) {
   run(enc, 'smooth', G.sm1, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm2, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth');
-  const extra = D3 && P.on.smth ? Math.max(0, Math.round((P.smth - 3) / 2)) : 0;     // Dollar 3: more smoothing passes = calmer curves
+  const extra = CALM && P.on.smth ? Math.max(0, Math.round((P.smth - 3) / 2)) : 0;     // Dollar 3: more smoothing passes = calmer curves
   for (let k = 0; k < extra; k++) { run(enc, 'smooth', G.sm4, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth'); }
-  const bw = D3 && !$('#e2pal').checked, fg = bw ? [18, 18, 18] : P.fg;              // Dollar 3: black ink unless the palette is asked for
+  const bw = CALM && !$('#e2pal').checked, fg = bw ? [18, 18, 18] : P.fg;              // Dollar 3: black ink unless the palette is asked for
   const dash = D3 && P.on.dl ? [P.dl, P.on.dfull ? P.dfull : 99, P.on.dmin ? P.dmin : 0.25, 1] : [12, 1, 0.25, 0];
-  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash]));
+  const wt = FL ? [1, P.on.wmin ? P.wmin : 1, P.on.con ? P.con : 1, P.on.bri ? P.bri : 0] : [0, 1, 1, 0];
+  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash, ...wt]));
   const d = {
     colorAttachments: [{ view: msaaView, resolveTarget: ctx.getCurrentTexture().createView(),
-      clearValue: D3 && !$('#e2pal').checked ? { r: 1, g: 1, b: 1, a: 1 } : { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
+      clearValue: CALM && !$('#e2pal').checked ? { r: 1, g: 1, b: 1, a: 1 } : { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
   };
   if (hasTS && timing && qn + 2 <= CAP) { d.timestampWrites = { querySet: qs, beginningOfPassWriteIndex: qn, endOfPassWriteIndex: qn + 1 }; qlabels.push(['draw: render', qn]); qn += 2; }
   const p = enc.beginRenderPass(d);
@@ -916,7 +945,7 @@ $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };
 cam.onStart = () => { lastMedia = -1; resetSim(); };
 cam.onLoad = () => { resetSim(); };
-initDefaults(D3 ? '.r2' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
+initDefaults(D3 ? '.r2' : FL ? '.v1' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
 
 // ---------------------------------------------------------------- go
 window.__state = { sim, P, hold, eff };
