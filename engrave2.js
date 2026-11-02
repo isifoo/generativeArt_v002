@@ -324,6 +324,7 @@ function render() {
     gl.enableVertexAttribArray(aAtt); gl.vertexAttribPointer(aAtt, 4, gl.FLOAT, false, 24, 8);
     gl.drawArrays(gl.TRIANGLES, 0, m.n);
   } };
+  if (!$('#e2base').checked) return;                          // overlay only: Dollar 2's own lines hidden
   if (f < 1) draw(meshes.old, 1 - f);
   draw(meshes.cur, f);
 }
