@@ -121,7 +121,7 @@ float alpha(int i, float L, float aa) {
     float g6 = (1.0 - L / 255.0) * 6.0;
     if (Linv[i] > 0.5) { a = 1.0 - a; g6 = 6.0 - g6; }
     int k = clamp(int(floor(g6)), 0, 5);
-    return a * (Lmask[i] == 0 ? float(k) / 5.0 : float((Lmask[i] >> k) & 1));
+    return a * (Lmask[i] == 0 ? 1.0 : float((Lmask[i] >> k) & 1));   // six fully opaque levels: a channel is on (1) or off (0); none chosen = all on
 }
 float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
@@ -231,7 +231,16 @@ function buildNodes() {
     <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
-  for (const el of nodeView.querySelectorAll('.node[data-grp]')) el.onclick = () => { selectNode(el.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
+  // CLICK A NODE = solo it (and edit it). Click it again: solo off. Another node: solo that one instead. Master: the full picture.
+  for (const el of nodeView.querySelectorAll('.node')) el.onclick = () => {
+    const id = el.querySelector('.nb')?.dataset.id;
+    if (!id) solo.clear();                                // Master
+    else if (solo.size === 1 && solo.has(id)) solo.clear();
+    else { solo.clear(); solo.add(id); }
+    if (el.dataset.grp) selectNode(el.dataset.grp);
+    showFlags();
+    if (!document.body.classList.contains('editing')) $('#setbtn').click();
+  };
   for (const b of nodeView.querySelectorAll('.nb i')) b.onclick = (e) => { e.stopPropagation(); (b.classList.contains('so') ? toggleSolo : toggleHide)(b.parentElement.dataset.id); };
   showFlags();
   const rm = nodeView.querySelector('.rm'); if (rm) rm.onclick = (e) => { e.stopPropagation(); removeLevel(); };
@@ -301,7 +310,7 @@ function alphaThumb(k) {                                 // the same Extract x c
       const sv = shape[row + Math.floor((x + 0.5) * TW / TWN)], L = sv * 255;
       let a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
       let g6 = (1 - sv) * 6; if (inv) { a = 1 - a; g6 = 6 - g6; }
-      const kk = Math.min(5, Math.max(0, Math.floor(g6))), g = lm ? (lm >> kk) & 1 : kk / 5;
+      const kk = Math.min(5, Math.max(0, Math.floor(g6))), g = lm ? (lm >> kk) & 1 : 1;
       d[i] = d[i + 1] = d[i + 2] = (1 - a * g) * 255; d[i + 3] = 255;
     } }
   const c = document.getElementById('ta' + k); if (c) c.getContext('2d').putImageData(aimg, 0, 0);

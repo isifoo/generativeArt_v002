@@ -109,7 +109,7 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .node:hover { border-color:#e8b04a; }
 #nodes .node b { display:block; font-size:10px; font-weight:600; color:#ddd; margin:0 0 4px; letter-spacing:.03em; }
 #nodes .node canvas { display:block; margin:0 auto; width:90px; height:160px; background:#fff; border-radius:3px; }
-#nodes .node.out { cursor:default; }
+#nodes .node.out { cursor:pointer; }
 #nodes .node canvas[width="54"] { width:54px; height:96px; }
 #nodes .node b .rm { font-style:normal; color:#e8b04a; cursor:pointer; padding:0 3px; }
 #nodes .addlvl { justify-self:start; padding:5px 10px; font-size:12px; }

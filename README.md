@@ -47,3 +47,6 @@ Fractal Lines: nodes on the left (the graph scales to fit), the picture always c
 
 ## Black on white, Multiply, channels only (v2.23)
 Every level is pure black lines on pure white; the Master multiplies the layers (like Multiply in After Effects; the overlay multiplies on top). Lines are drawn at their full Width wherever the level's channels let them through: the luma no longer thins them, so every channel 0-5 draws at the same density (measured: 20.8-21.5% ink inside each channel for width 3 / spacing 15). Multiply measured exact (composite = product of the soloed levels, within rounding).
+
+## Opaque channels, click to solo (v2.24)
+The matte is six fully opaque levels: a channel is on (100%) or off (0%); no channel chosen = on everywhere (the old grey ramp is gone). Clicking a node solos it and opens its settings; clicking it again turns solo off; clicking another node solos that one instead; clicking Master shows the full picture. The Solo buttons still solo several nodes at once.
