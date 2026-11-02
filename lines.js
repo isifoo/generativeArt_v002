@@ -19,10 +19,14 @@ const SLIDERS = [
   { id: 'flev', label: 'Drift speed', min: 0, max: 1, step: 0.005, val: 0.06, off: 'still' },
   { id: 'flfl', label: 'Flip with contrast', min: 0, max: 1, step: 0.01, val: 1, off: 'same wave everywhere' },
   { id: 'flfs', label: 'Flip softness px', min: 4, max: 300, step: 2, val: 90, off: '120' },
-  { head: 'Mask (Dollar 1 = alpha of the lines)' },
+  { head: 'Mask: Extract (as in AE, luminance of Dollar 1 = alpha of the lines)' },
   { id: 'flmk', label: 'Mask strength', min: 0, max: 1, step: 0.01, val: 1, off: 'no mask: lines everywhere' },
-  { id: 'flmg', label: 'Mask gain', min: 0.2, max: 10, step: 0.05, val: 3.5, off: '1' },
-  { id: 'flms', label: 'Mask softness px', min: 0, max: 64, step: 1, val: 10, off: 'crisp' },
+  { id: 'flbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'flwp', label: 'White Point', min: 0, max: 255, step: 1, val: 235, off: '255' },
+  { id: 'flbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: 'flws', label: 'White Softness', min: 0, max: 255, step: 1, val: 20, off: '0' },
+  { id: 'flmi', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
+  { id: 'flms', label: 'Mask blur px', min: 0, max: 64, step: 1, val: 10, off: 'crisp' },
   { head: 'Tone' },
   { id: 'flc', label: 'Contrast', min: 0.2, max: 5, step: 0.01, val: 1.3, off: '1' },
   { id: 'flb', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
@@ -69,7 +73,7 @@ precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D toneT, softT;
 uniform sampler2D maskT;                                 // Dollar 1's picture: its ink is the alpha of the lines
-uniform float mStr, mGain, mLod;
+uniform float mStr, mLod, bp, wp, bs, ws, minv;          // Extract: points and softness in 0..255
 uniform float flip;                                     // how much the wave turns over between dark (1) and light (0)
 uniform vec2 res;
 uniform float sp, wid, thin, ang, amp, scl, oct, evo, con, bri;   // amp = wave height px, scl = wave length px, oct = variation
@@ -96,7 +100,11 @@ void main() {
   float inkv = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
   if (mStr > 0.0) {                                                  // alpha from Dollar 1: lines show only where it has ink
     vec3 mc = textureLod(maskT, vec2(uv.x, 1.0 - uv.y), mLod).rgb;
-    float a = clamp((1.0 - dot(mc, vec3(0.299, 0.587, 0.114))) * mGain, 0.0, 1.0);
+    // AE Extract (luminance): transparent below Black Point and above White Point, feathered by the softness values
+    float L = dot(mc, vec3(0.299, 0.587, 0.114)) * 255.0;
+    float lo = bs > 0.0 ? smoothstep(bp - bs, bp, L) : step(bp, L);
+    float hi = ws > 0.0 ? 1.0 - smoothstep(wp, wp + ws, L) : step(L, wp);
+    float a = lo * hi; if (minv > 0.5) a = 1.0 - a;
     inkv *= mix(1.0, a, mStr);
   }
   o = vec4(mix(paper, ink, inkv), 1.0);
@@ -114,7 +122,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'maskT', 'mStr', 'mGain', 'mLod', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'softT', 'maskT', 'mStr', 'mLod', 'bp', 'wp', 'bs', 'ws', 'minv', 'flip', 'res', 'sp', 'wid', 'thin', 'ang', 'amp', 'scl', 'oct', 'evo', 'con', 'bri', 'ink', 'paper']) U[n] = gl.getUniformLocation(pr, n);
 const tt = gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tt);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -137,7 +145,8 @@ function render() {
   }
   gl.uniform1f(U.flip, num('flfl', 0));
   const mOn = P.on.flmk !== false && P.flmk > 0 && DM.M.have;
-  gl.uniform1f(U.mStr, mOn ? P.flmk : 0); gl.uniform1f(U.mGain, num('flmg', 1));
+  gl.uniform1f(U.mStr, mOn ? P.flmk : 0);
+  gl.uniform1f(U.bp, num('flbp', 0)); gl.uniform1f(U.wp, num('flwp', 255)); gl.uniform1f(U.bs, num('flbs', 0)); gl.uniform1f(U.ws, num('flws', 0)); gl.uniform1f(U.minv, num('flmi', 0));
   gl.uniform1f(U.mLod, P.on.flms !== false && P.flms > 0 ? Math.log2(P.flms) : 0);
   if (mOn) {                                                         // Dollar 1's frame -> mask texture (mipmaps = softness)
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tm);
@@ -170,7 +179,7 @@ window.__dollarOverlay = { canvas: maskCanvas, dm: DM, on: () => P.on.flmk !== f
   defaults: { enlo: 0, enl: 0, enc: 3.02, enb: 0.41 } };   // the mask is Dollar 1: same look (v2.04)
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
 DM.load();
-initDefaults('.r6');                                       // r6: Dollar 1 mask with Dollar 1's look (v2.04)
+initDefaults('.r7');                                       // r6: Dollar 1 mask with Dollar 1's look (v2.04)
 window.__state = { P, val, tone };
 requestAnimationFrame(loop);
 versionCheck();
