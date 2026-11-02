@@ -26,3 +26,6 @@ Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishi
 
 ## Settings files (v2.14)
 Edit > Save file downloads every setting of the current style (sliders, max values, on/off boxes, Fractal Lines levels, channel mattes, master values, colours) as a .json. Load file brings one back. Anyone can use these; Save as default (PIN) still sets what the page opens with.
+
+## Autosave (v2.16)
+Every change is saved in this browser automatically (once a second, and when the page is closed or hidden), separately for each style, and comes back on refresh. Edit > Start over forgets it and goes back to the defaults. It lives in this browser only: use Save file to move a setup to another device.

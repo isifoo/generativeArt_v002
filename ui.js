@@ -233,18 +233,29 @@ export function initDefaults(rev = '') {
     }
   };
   const local = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+  // AUTOSAVE: every change is kept in this browser (per style) and comes back on refresh. Start over goes back to the defaults.
+  const AUTO = 'genArt002.autosave.' + VIEW + rev;
+  const state = () => JSON.stringify({ settings: snapshot(), palette: serializePalette() });
+  let lastAuto = null;
+  const autosave = () => { if (lastAuto === null) return; const j = state(); if (j === lastAuto) return; lastAuto = j; try { localStorage.setItem(AUTO, j); } catch {} };
   (async () => {
     const site = await SITE;
-    const v = local(STORE) || (site && site[STORE]);
+    const auto = local(AUTO);
+    const v = (auto && auto.settings) || local(STORE) || (site && site[STORE]);
     if (v) apply(v);
+    if (auto && auto.palette) restorePalette(auto.palette);
+    setTimeout(() => { lastAuto = state(); setInterval(autosave, 1000); }, 300);   // start after the restore has settled
   })();
+  addEventListener('pagehide', autosave);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) autosave(); });
+  $('#startover').onclick = () => { if (!confirm('Go back to the default settings? Your current setup is lost unless you Save file first.')) return; lastAuto = null; try { localStorage.removeItem(AUTO); } catch {} location.reload(); };
   const flash = (el, t) => { const o = el.textContent; el.textContent = t; setTimeout(() => { el.textContent = o; }, 1600); };
   $('#setdef').onclick = () => {
     if (!owner.on) return;
     try { localStorage.setItem(STORE, JSON.stringify(snapshot())); localStorage.setItem(PALKEY, JSON.stringify(serializePalette())); flash($('#setdef'), 'Saved as default'); }
     catch { flash($('#setdef'), 'Could not save'); }
   };
-  $('#resetdef').onclick = () => { if (!owner.on) return; try { localStorage.removeItem(STORE); localStorage.removeItem(PALKEY); } catch {} location.reload(); };
+  $('#resetdef').onclick = () => { if (!owner.on) return; lastAuto = null; try { localStorage.removeItem(STORE); localStorage.removeItem(PALKEY); localStorage.removeItem(AUTO); } catch {} location.reload(); };
   // a settings file: this style's sliders, levels, nodes, channels and the palette. Anyone can save and load one.
   $('#savefile').onclick = () => {
     const o = { app: 'generativeArt_v002', view: VIEW, rev, saved: new Date().toISOString(), settings: snapshot(), palette: serializePalette() };
