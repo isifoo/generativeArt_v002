@@ -1,6 +1,6 @@
 // FRACTAL LINES: two nodes, wired into the output.
-//  [Lines]  evenly spaced lines whose shape is a wave that turns over between the dark and light of the video (soft
-//           contrast), width by tone. The look is fixed (it works); the node only has Spacing, Width and Angle.
+//  [Lines]  procedural lines: each one a pure sine (height x sin(2 pi x / length), drifting slowly), all the same wave
+//           shifted by one spacing, so they never bunch. Width by tone. The node only has Spacing, Width and Angle.
 //  [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes): Black Point, White Point, Black Softness,
 //           White Softness, Invert. Opaque = the lines show. With the defaults it is solid black and white, like a poster.
 //  [Out]    lines x alpha.
@@ -77,9 +77,8 @@ void main() {
   vec2 px = uv * res;
   // [Lines]
   vec2 t = vec2(cos(ang), -sin(ang)), nrm = vec2(-t.y, t.x);
-  float w = AMP * sin(6.2831853 * dot(px, t) / LEN + evo + VAR * 6.2831853 * fbm(px / LEN));
-  float sd = clamp((0.5 - texture(softT, uv).r) * 2.0 * CON, -1.0, 1.0);   // the wave turns over between dark and light
-  w *= mix(1.0, sd, FLIP);
+  // a pure sine: every line is the same wave shifted by one spacing, so the lines are perfect and evenly spaced
+  float w = AMP * sin(6.2831853 * dot(px, t) / LEN + evo);
   float phi = (dot(px, nrm) + w) / sp;
   float g = length(vec2(dFdx(phi), dFdy(phi))) + 1e-5;
   float d = abs(fract(phi + 0.5) - 0.5) / g;
