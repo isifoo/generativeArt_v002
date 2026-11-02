@@ -58,10 +58,14 @@ SLIDERS.push({ head: 'Flip' },
   { id: 'mfl', label: 'Bands', min: 2, max: 6, step: 1, val: 2, off: 'no flip' },
   { id: 'mfd', label: 'Detail size px', min: 6, max: 200, step: 1, val: 90, off: '90' },
   { id: 'mfg', label: 'Detail contrast', min: 1, max: 30, step: 0.5, val: 4.5, off: '4.5' },
+  { id: 'mfth', label: 'Detail threshold', min: 0, max: 0.45, step: 0.01, val: 0.12, off: 'every darker spot' },   // only details clearly darker than around
   { id: 'mfx', label: 'Cross (darker details)', min: 0, max: 1, step: 1, val: 1, off: 'no cross: the turned lines replace' },
   { id: 'mft', label: 'Turn deg', min: -90, max: 90, step: 1, val: 45, off: 'no turn: only the wave flips' });   // flipped areas also turn their lines
 SLIDERS.push({ head: 'Overlay' },
-  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' }, ...(D5 ? [] : DEPTH_SL));   // Dollar 5: one depth model, its sliders on the Map
+  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
+  { id: 'ovbp', label: 'Black point', min: 0, max: 254, step: 1, val: 0, off: '0' },          // Levels on the overlay layer: contrast,
+  { id: 'ovwp', label: 'White point', min: 1, max: 255, step: 1, val: 225, off: '255' },     // and light greys (speckle) to clean paper
+  ...(D5 ? [] : DEPTH_SL));                                 // Dollar 5: one depth model, its sliders on the Map
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -159,6 +163,7 @@ uniform vec4 Lp[${MAXL}];                                // width, dash length (
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
 uniform float flipN;
 uniform vec2 flipR;
+uniform float flipT;
 uniform float flipX;                                     // Flip Cross: 1 = flipped areas keep the first lines too (cross-hatch)                                      // Flip: the turn of the lines in flipped areas (cos, sin)                                     // Flip: number of bands (0 = off)
 float FL = 1.0;                                          // this pixel's wave direction (+1 / -1), set in main
 uniform vec3 mapP;                                       // the Map: black point, white point, softness (0..1 of half a band)
@@ -233,7 +238,7 @@ void main() {
   // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
   float dt = texture(detT, uv).r;                         // the detail map: < 0.5 darker than around, > 0.5 lighter
-  float fb = flipN > 0.0 ? floor(min(dt * flipN, flipN - 0.001)) : 0.0;
+  float fb = flipN > 0.0 ? floor(clamp((dt + flipT) * flipN, 0.0, flipN - 0.001)) : 0.0;   // flipT: only clearly darker details flip
   FL = mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;                   // band 0 (the darker details) flips, then every other band
   float v = 1.0;
   if (mode == 0) {
@@ -267,7 +272,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -286,7 +291,7 @@ function setUniforms() {                                  // only when a setting
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape();
   if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
@@ -434,7 +439,7 @@ function nodeThumbs(now) {
   render(6, 0, TWN, THN); grab('tflip', TWN, THN);
   render(0, 0, 90, 160); grab('tm', 90, 160);
   const tov = document.getElementById('tov'), tm = document.getElementById('tm');
-  if (ovOn()) { ovx.drawImage(ovCanvas, 0, 0, 216, 384); }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
+  if (ovOn()) { ovx.filter = ovLevels(); ovx.drawImage(ovCanvas, 0, 0, 216, 384); ovx.filter = 'none'; }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
   if (tov) { const c = tov.getContext('2d'); c.imageSmoothingQuality = 'high'; c.fillStyle = '#fff'; c.fillRect(0, 0, TWN, THN); if (ovLoaded) c.drawImage(ovSmall, 0, 0, TWN, THN); }   // its last picture, also while hidden (dimmed)
   if (tm && ovOn()) { const c = tm.getContext('2d'); c.imageSmoothingQuality = 'high'; c.globalCompositeOperation = 'multiply'; c.globalAlpha = num('ovs', 0); c.drawImage(ovSmall, 0, 0, 90, 160); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; }
   $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px' + (master('motion', 0) > 0 ? ' · motion ' + master('motion', 0) : '');
@@ -540,7 +545,11 @@ const ovSmall = document.createElement('canvas'); ovSmall.width = 216; ovSmall.h
 const ovOn = () => P.on.ovs !== false && P.ovs > 0 && ovHideIn.value !== '1' && (!solo.size || solo.has('OV'));   // visible: worked out only then
 const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; });
 let ovLoaded = false;
-function ovStyle() { ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
+function ovLevels() {                                     // AE Levels as a CSS filter: out = (in - black) / (white - black)
+  const bp = num('ovbp', 0) / 255, wp = Math.max(bp + 1 / 255, num('ovwp', 255) / 255), a = 1 / (wp - bp), c = -bp / (wp - bp), y = 1 - 2 * c;
+  return `brightness(${(a / y).toFixed(4)}) contrast(${y.toFixed(4)})`;
+}
+function ovStyle() { ovCanvas.style.filter = ovLevels(); ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
 // the look Gerry liked (v2.02): the engraving's own defaults; depth detail 22, smoothing 0.85, strength 0.6
 window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: null };
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));

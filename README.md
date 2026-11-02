@@ -65,3 +65,6 @@ Each Lines node: Rough edges px (default 0.8; 0 = clean), the stroke edges and d
 
 ## Flip by detail (v2.29)
 The Flip node now reads the image details, not bands of the map: detail = 0.5 + Detail contrast x (fine luma - luma blurred at Detail size px). Darker-than-around details (band 0, then every other band) flip: the wave turns over, the lines turn by Turn deg (default 45), and with Cross (default on) the turned lines are added to the first set, so dark details are cross-hatched. Defaults: Bands 2, Detail size 90 px, Detail contrast 4.5, Turn 45, Cross on.
+
+## Overlay Levels, Flip threshold (v2.30)
+The overlay engraving was measured unchanged since v2.17 (mean difference 0.002/255); the extra noise came from the layers under it. Overlay node: Black point / White point (AE Levels on the layer, as a CSS filter; default white 225 turns the light-grey speckle into paper). Flip node: Detail threshold (default 0.12): only details clearly darker than their surroundings cross-hatch.
