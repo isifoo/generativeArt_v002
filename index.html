@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261102210000">
+<meta name="build" content="20261102220000">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-<link rel="stylesheet" href="css/main.css?b=20261102210000">
+<link rel="stylesheet" href="css/main.css?b=20261102220000">
 </head>
 <body>
 <div id="app">
@@ -20,7 +20,7 @@
     <div class="row"><span class="row" id="versions"></span><button id="setbtn" type="button">Edit</button></div>
     <div id="msg"></div>
     <div id="pinbox" class="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v2.01 (2026-11-02)</div>
+    <div class="note" id="ver">Generative Art v002 · v2.02 (2026-11-02)</div>
   </div>
 </div>
 
@@ -50,7 +50,7 @@
   <div class="ctl" data-views="depth3d"><span>Look</span><select id="d3look" data-save><option value="video" selected>Video on the surface</option><option value="clay">White clay</option><option value="palette">Palette by depth</option></select></div>
   <div class="ctl" data-views="depth3d"><span>Turn</span><span class="note">drag the picture to turn it, double click to reset</span></div>
   <div class="ctl" data-views="dollar2"><span>Layers</span><label class="note"><input type="checkbox" id="e2base" checked data-save> Dollar 2 lines (untick: only the Dollar overlay)</label></div>
-  <div class="ctl" data-views="dollar,dollar2,dollar3,flines"><span>Colours</span><label class="note"><input type="checkbox" id="e2pal" data-save> use the palette (off: black ink on white paper)</label></div>
+  <div class="ctl" data-views="dollar,dollar1,dollar2,dollar3,flines"><span>Colours</span><label class="note"><input type="checkbox" id="e2pal" data-save> use the palette (off: black ink on white paper)</label></div>
   <div class="ctl" data-views="depthdots"><span>Depth drives</span><select id="ddmode" data-save><option value="size" selected>Size (one colour, near = big)</option><option value="colour">Colour (palette, random sizes)</option></select></div>
   <div class="ctl" data-views="ishihara,depthdots"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (ishihara: bright video = dark circles; depth dots: far = big / far = first colour)</label></div>
   <div class="ctl" data-views="ishihara,depthdots"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
@@ -64,7 +64,7 @@
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
   const v = new URLSearchParams(location.search).get('view');
-  import(({ ishihara: './ishihara.js', depthdots: './ishihara.js', depth: './depth.js', depth3d: './depth3d.js', dollar: './engrave.js', dollar2: './engrave2.js', dollar3: './line.js', flines: './lines.js' }[v] || './line.js') + '?b=' + b);
+  import(({ ishihara: './ishihara.js', depthdots: './ishihara.js', depth: './depth.js', depth3d: './depth3d.js', dollar: './engrave.js', dollar2: './engrave2.js', dollar1: './engrave2.js', dollar3: './line.js', flines: './lines.js' }[v] || './line.js') + '?b=' + b);
 </script>
 </body>
 </html>

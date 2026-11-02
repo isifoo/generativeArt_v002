@@ -8,7 +8,7 @@
 //     Line ends taper. A second set of streamlines crosses at 'cross angle' for the darks.
 //  5. Tone on the lines, at one thickness: short dashes in the lights -> longer dashes -> continuous lines -> the crossing set
 //     comes in the same way (darks). The lines are rebuilt every so often and cross-fade, the tone on them updates every frame.
-import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
+import { $, vid, cam, VIEW, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
 import { createDepthModel, MODELS, OW, OH } from './depthmodel.js';
 
 // ---------------------------------------------------------------- sliders (-1 = off)
@@ -45,8 +45,11 @@ const SLIDERS = [
   { id: 'dpq', label: 'Model detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
   { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' },
 ];
+// DOLLAR 1 (?view=dollar1): only the Dollar overlay layer, as it looks inside Dollar 2 (60% strength, multiply on white),
+// without Dollar 2's own lines and sliders.
+const D1 = VIEW === 'dollar1';
 const P = { pal: false };
-const val = buildSliders(SLIDERS, P);
+const val = buildSliders(D1 ? SLIDERS.filter((s) => ['e2oo', 'dpq', 'dps'].includes(s.id) || /^(Overlay|Depth)/.test(s.head || '')) : SLIDERS, P);
 const offv = (id) => P.on[id] === false;
 const num = (id, def) => (offv(id) ? def : P[id]);
 
@@ -308,6 +311,7 @@ function rebuild() {
 }
 let pal = getPalette(); onPalette((p) => { pal = p; });
 function render() {
+  if (D1) { gl.viewport(0, 0, OW, OH); gl.clearColor(1, 1, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); return; }   // white paper under the overlay
   if (uploadTone) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tTone); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, tone); uploadTone = false; }
   const paper = P.pal ? pal.paper.map((x) => x / 255) : [1, 1, 1], ink = P.pal ? pal.cols[0].map((x) => x / 255) : [0.07, 0.07, 0.07];
   gl.viewport(0, 0, OW, OH); gl.clearColor(paper[0], paper[1], paper[2], 1); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -324,7 +328,7 @@ function render() {
     gl.enableVertexAttribArray(aAtt); gl.vertexAttribPointer(aAtt, 4, gl.FLOAT, false, 24, 8);
     gl.drawArrays(gl.TRIANGLES, 0, m.n);
   } };
-  if (!$('#e2base').checked) return;                          // overlay only: Dollar 2's own lines hidden
+  if (!$('#e2base').checked) return;                          // (Dollar 1 never gets here)                          // overlay only: Dollar 2's own lines hidden
   if (f < 1) draw(meshes.old, 1 - f);
   draw(meshes.cur, f);
 }
@@ -347,10 +351,10 @@ function loop() {
   requestAnimationFrame(loop);
   if (vid.readyState < 2 || !vid.videoWidth) return;
   const fresh = vid.currentTime !== lastMedia; lastMedia = vid.currentTime;
-  if (fresh || dirty) updateTone();
+  if (!D1 && (fresh || dirty)) updateTone();
   if (M.ready && !M.busy && (fresh || !M.have)) DM.infer();
   const every = offv('e2rb') ? Infinity : P.e2rb * 1000, key = ['e2sp', 'e2w', 'e2a', 'e2x', 'e2fd', 'e2ft', 'e2fs', 'e2mn'].map((k) => val(k)).join();
-  if (toneReady && (meshes.cur.length === 0 || key !== buildKey || performance.now() - lastBuild > every)) { buildKey = key; rebuild(); }
+  if (!D1 && toneReady && (meshes.cur.length === 0 || key !== buildKey || performance.now() - lastBuild > every)) { buildKey = key; rebuild(); }
   render();
 }
 
@@ -370,7 +374,7 @@ const ovStyle = () => { ovCanvas.style.opacity = ovOn() ? P.e2oo : 0; };
 window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn };
 await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
 ovStyle(); $('#e2oo').addEventListener('input', ovStyle); $('#e2oo').parentElement.querySelector('.onoff input').addEventListener('change', ovStyle);
-initDefaults('.r3');                                       // r3: Dollar overlay sliders added (v1.93)                                       // r2: near-straight lines by default (v1.92)
+initDefaults(D1 ? '.d1' : '.r3');                                       // r3: Dollar overlay sliders added (v1.93)                                       // r2: near-straight lines by default (v1.92)
 
 window.__state = { M, P, val, tone, rebuild, get buildMs() { return buildMs; }, get nLines() { return nLines; } };
 DM.load();

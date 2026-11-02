@@ -14,6 +14,7 @@ export const VERSIONS = [
   { id: 'depthdots', label: 'Depth Dots' },
   { id: 'depth3d', label: 'Depth 3D' },
   { id: 'dollar', label: 'Dollar' },
+  { id: 'dollar1', label: 'Dollar 1' },
   { id: 'dollar2', label: 'Dollar 2' },
   { id: 'dollar3', label: 'Dollar 3' },
   { id: 'flines', label: 'Fractal Lines' },
