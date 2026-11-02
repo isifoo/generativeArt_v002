@@ -1,36 +1,36 @@
-// FRACTAL LINES: two nodes, wired into the output.
-//  [Lines]  procedural lines: each one a pure sine (height x sin(2 pi x / length), drifting slowly), all the same wave
-//           shifted by one spacing, so they never bunch. Width by tone. The node only has Spacing, Width and Angle.
-//  [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes): Black Point, White Point, Black Softness,
-//           White Softness, Invert. Opaque = the lines show. With the defaults it is solid black and white, like a poster.
-//  [Out]    lines x alpha.
-// Click a node: the Edit panel shows that node's settings only.
-import { $, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
+// FRACTAL LINES: levels of lines, composited by the Master.
+//  Each level (Level01 .. Level06) = [Lines] + [Alpha] -> [LevelNN]:
+//   [Lines]  procedural lines: a pure sine (height x sin(2 pi x / length), drifting slowly), every line the same wave
+//            shifted by the master spacing, so they never bunch. Width by tone; Width, Angle, Dash length, Dash gap.
+//   [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes) + six grey level channels (0-5) as the matte.
+//  [Master] universal values (CSS variables on :root, read with master(name)) and the output: the levels stacked like ink
+//           (multiply: 1 - product of (1 - ink)), so the paper stays white and every level shows.
+// + Duplicate level copies the last level into a new one (up to 6). Click a node: Edit shows that node's settings only.
+import { $, vid, cam, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
 
-const OW = 1080, OH = 1920;
+const OW = 1080, OH = 1920, MAXL = 6;
 // the fixed look of the lines (Gerry's settings, v2.00)
-const LOOK = { thin: 0, amp: 86.5, len: 1090, variation: 0.8, drift: 0.06, flip: 1, flipSoft: 90, con: 1.3, bri: 0, smooth: 0.6 };
+const LOOK = { thin: 0, amp: 86.5, len: 1090, drift: 0.06, con: 1.3, bri: 0, smooth: 0.6 };
 const SHAPE_PX = 16;                                       // the alpha's shapes are smoothed this much, so they are clean
-const SLIDERS = [
-  { head: 'Master' },
-  { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
-  { head: 'Lines' },
-  { id: 'flw', label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
-  { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
-  { id: 'fdl', label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
-  { id: 'fdg', label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
-  { head: 'Alpha (Extract + 6 levels)' },
-  { id: 'xbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
-  { id: 'xbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'xws', label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
-  { id: 'xinv', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
-];
+const pad = (k) => String(k).padStart(2, '0');
+const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' }];
+for (let k = 1; k <= MAXL; k++) SLIDERS.push(
+  { head: `Level${pad(k)} Lines` },
+  { id: `l${k}w`, label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
+  { id: `l${k}a`, label: 'Angle deg', min: -90, max: 90, step: 1, val: -6 + (k - 1) * 30, off: '0' },
+  { id: `l${k}dl`, label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
+  { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
+  { head: `Level${pad(k)} Alpha` },
+  { id: `l${k}bp`, label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: `l${k}wp`, label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
+  { id: `l${k}bs`, label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: `l${k}ws`, label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
+  { id: `l${k}inv`, label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
+);
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
 // MASTER: universal values every node reads, kept as CSS variables on :root (like the palette in css/main.css).
-// The Master node's sliders write them; any node (now or later) reads them with master(name).
 const root = document.documentElement;
 const MASTER = { spacing: 'mspc' };
 function syncMaster() { for (const [k, id] of Object.entries(MASTER)) root.style.setProperty('--' + k, String(num(id, 15))); }
@@ -38,11 +38,17 @@ function master(k, def) { const v = parseFloat(getComputedStyle(root).getPropert
 for (const id of Object.values(MASTER)) { const el = $('#' + id); el.addEventListener('input', syncMaster); el.parentElement.querySelector('.onoff input').addEventListener('change', syncMaster); }
 syncMaster();
 
+// saved with the defaults: how many levels, and each level's matte channels
+const hidden = (id, v) => { const i = document.createElement('input'); i.type = 'hidden'; i.id = id; i.value = v; i.dataset.save = ''; $('#settings').prepend(i); return i; };
+const nIn = hidden('flevels', '1'), chIn = [];
+for (let k = 1; k <= MAXL; k++) chIn[k] = hidden(`l${k}ch`, '');
+const nLevels = () => Math.min(MAXL, Math.max(1, parseInt(nIn.value) || 1));
+
 // ---------------------------------------------------------------- tone (CPU, small and soft)
 const TW = 180, TH = 320, TN = TW * TH;
 const tc = document.createElement('canvas'); tc.width = TW; tc.height = TH;
 const tx = tc.getContext('2d', { willReadFrequently: true });
-const tone = new Float32Array(TN).fill(1), soft = new Float32Array(TN), shape = new Float32Array(TN), stmp = new Float32Array(TN);
+const tone = new Float32Array(TN).fill(1), shape = new Float32Array(TN), stmp = new Float32Array(TN);
 function blurInto(dst, r) {
   dst.set(tone);
   for (let pass = 0; pass < 2; pass++) {
@@ -59,12 +65,11 @@ function updateTone() {
   drawCover(tx, TW, TH);
   const d = tx.getImageData(0, 0, TW, TH).data, k = toneReady ? 1 - LOOK.smooth : 1;
   for (let i = 0; i < TN; i++) tone[i] += ((0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]) / 255 - tone[i]) * k;
-  blurInto(soft, Math.max(1, Math.round(LOOK.flipSoft / (OW / TW) / 2)));
   blurInto(shape, Math.max(1, Math.round(SHAPE_PX / (OW / TW) / 2)));
   toneReady = true; upload = true;
 }
 
-// ---------------------------------------------------------------- shader
+// ---------------------------------------------------------------- shader: all levels in one pass
 const canvas = $('#cv'); canvas.width = OW; canvas.height = OH;
 const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true });
 const VS = `#version 300 es
@@ -72,48 +77,41 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D toneT, softT, shapeT;
+uniform sampler2D toneT, shapeT;
 uniform vec2 res;
-uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv, dlen, dgap;   // dlen 0 = continuous
-uniform int lmask;                                       // level channels switched on (bit k = level k), 0 = all graded
-const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, VAR = ${LOOK.variation.toFixed(3)};
-const float FLIP = ${LOOK.flip.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
-float h21(vec2 q) { q = fract(q * vec2(127.1, 311.7)); q += dot(q, q + 34.53); return fract(q.x * q.y); }
-float vnoise(vec2 q) { vec2 i = floor(q), f = fract(q); f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-  return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
-float fbm(vec2 q) { float s = 0.0, a = 0.5, n = 0.0;
-  for (int k = 0; k < 3; k++) { s += a * vnoise(q + float(k) * 17.31 + evo * 0.3); n += a; q *= 2.03; a *= 0.5; }
-  return s / n - 0.5; }
-void main() {
-  vec2 px = uv * res;
-  // [Lines]
-  vec2 t = vec2(cos(ang), -sin(ang)), nrm = vec2(-t.y, t.x);
-  // a pure sine: every line is the same wave shifted by one spacing, so the lines are perfect and evenly spaced
-  float w = AMP * sin(6.2831853 * dot(px, t) / LEN + evo);
-  float phi = (dot(px, nrm) + w) / sp;
+uniform float sp, evo;
+uniform int nL, solo, mode;                              // mode 0: all levels stacked; 1: level 'solo' lines only; 2: level 'solo' lines x alpha
+uniform vec4 Lp[${MAXL}];                                // width, angle (rad), dash length (0 = continuous), dash gap
+uniform vec4 Le[${MAXL}];                                // Extract: black point, white point, black softness, white softness
+uniform float Linv[${MAXL}];
+uniform int Lmask[${MAXL}];                              // level channels on (bit k = grey level k), 0 = all graded
+const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
+float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
+  vec4 p = Lp[i];
+  vec2 t = vec2(cos(p.y), -sin(p.y)), nrm = vec2(-t.y, t.x);
+  float phi = (dot(px, nrm) + AMP * sin(6.2831853 * dot(px, t) / LEN + evo)) / sp;   // a pure sine, shifted by one spacing per line
   float g = length(vec2(dFdx(phi), dFdy(phi))) + 1e-5;
   float d = abs(fract(phi + 0.5) - 0.5) / g;
-  float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
-  float hw = 0.5 * wid * mix(THIN, 1.0, dk);
-  float inkv = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
-  // dashes: along each line, dash length then gap, repeating (measured along the line direction)
-  if (dlen > 0.0 && dgap > 0.0) {
-    float per = dlen + dgap, u = mod(dot(px, t), per), e = min(u, dlen - u);   // e: px inside the dash (< 0 in the gap)
-    inkv *= smoothstep(-0.6, 0.6, e);
-  }
-  // [Alpha] AE Extract on the luminance: transparent below Black Point and above White Point, feathered by the softness
-  float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
-  float lo = smoothstep(bp - bs - aa, bp, L);
-  float hi = 1.0 - smoothstep(wp, wp + ws + aa, L);
-  float a = lo * hi; if (inv > 0.5) a = 1.0 - a;
-  // 6 grey levels (0 lightest .. 5 darkest): six equal bands of the luma, used like channels.
-  // Levels switched on = the matte (lines there at full strength, nowhere else); none on = all six graded (k / 5).
+  float hw = 0.5 * p.x * mix(THIN, 1.0, dk);
+  float ink = hw < 0.05 ? 0.0 : 1.0 - smoothstep(hw - 0.6, hw + 0.6, d);
+  if (p.z > 0.0 && p.w > 0.0) { float per = p.z + p.w, u = mod(dot(px, t), per); ink *= smoothstep(-0.6, 0.6, min(u, p.z - u)); }
+  if (!withAlpha) return ink;
+  vec4 e = Le[i];
+  float a = smoothstep(e.x - e.z - aa, e.x, L) * (1.0 - smoothstep(e.y, e.y + e.w + aa, L));   // AE Extract
   float g6 = (1.0 - L / 255.0) * 6.0;
-  if (inv > 0.5) g6 = 6.0 - g6;
+  if (Linv[i] > 0.5) { a = 1.0 - a; g6 = 6.0 - g6; }
   int k = clamp(int(floor(g6)), 0, 5);
-  float gq = lmask == 0 ? float(k) / 5.0 : float((lmask >> k) & 1);
-  if (useAlpha > 0.5) inkv *= a * gq;
-  o = vec4(mix(vec3(1.0), vec3(0.07), inkv), 1.0);
+  float gq = Lmask[i] == 0 ? float(k) / 5.0 : float((Lmask[i] >> k) & 1);
+  return ink * a * gq;
+}
+void main() {
+  vec2 px = uv * res;
+  float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
+  float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
+  float ink = 0.0;
+  if (mode == 0) { for (int i = 0; i < ${MAXL}; i++) { if (i >= nL) break; ink = 1.0 - (1.0 - ink) * (1.0 - level(i, px, dk, L, aa, true)); } }
+  else ink = level(solo, px, dk, L, aa, mode == 2);
+  o = vec4(mix(vec3(1.0), vec3(0.07), ink), 1.0);
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -128,98 +126,149 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'dlen', 'dgap', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv', 'lmask']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'res', 'sp', 'evo', 'nL', 'solo', 'mode', 'Lp', 'Le', 'Linv', 'Lmask']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(U[name], unit); return t; };
-const T = { tone: tex(0, 'toneT'), soft: tex(1, 'softT'), shape: tex(2, 'shapeT') };
+const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT') };
+const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
-function render(withAlpha = true) {
-  const now = performance.now(); evoT += (now - lastT) / 1000 * LOOK.drift; lastT = now;
+function setUniforms() {
+  const Lp = new Float32Array(MAXL * 4), Le = new Float32Array(MAXL * 4), Li = new Float32Array(MAXL), Lm = new Int32Array(MAXL);
+  for (let k = 1; k <= MAXL; k++) {
+    const i = k - 1;
+    Lp.set([num(`l${k}w`, 0.6), num(`l${k}a`, 0) * Math.PI / 180, P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`], num(`l${k}dg`, 0)], i * 4);
+    Le.set([num(`l${k}bp`, 0), num(`l${k}wp`, 255), num(`l${k}bs`, 0), num(`l${k}ws`, 0)], i * 4);
+    Li[i] = num(`l${k}inv`, 0); Lm[i] = levelMask(k);
+  }
+  gl.uniform4fv(U.Lp, Lp); gl.uniform4fv(U.Le, Le); gl.uniform1fv(U.Linv, Li); gl.uniform1iv(U.Lmask, Lm);
+  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1f(U.evo, evoT * 6.2831853); gl.uniform1i(U.nL, nLevels());
+}
+function render(mode = 0, solo = 0, vw = OW, vh = OH) {
   if (upload) {
-    for (const [k, unit, arr] of [['tone', 0, tone], ['soft', 1, soft], ['shape', 2, shape]]) {
+    for (const [k, unit, arr] of [['tone', 0, tone], ['shape', 1, shape]]) {
       gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, T[k]); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, TW, TH, 0, gl.RED, gl.FLOAT, arr);
     }
     upload = false;
   }
-  gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1f(U.dlen, P.on.fdl === false ? 0 : P.fdl); gl.uniform1f(U.dgap, num('fdg', 0)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
-  gl.uniform1f(U.evo, evoT * 6.2831853); gl.uniform1f(U.useAlpha, withAlpha ? 1 : 0);
-  gl.uniform1f(U.bp, num('xbp', 0)); gl.uniform1f(U.wp, num('xwp', 255)); gl.uniform1f(U.bs, num('xbs', 0)); gl.uniform1f(U.ws, num('xws', 0)); gl.uniform1f(U.inv, num('xinv', 0)); gl.uniform1i(U.lmask, levelMask());
-  gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.uniform1i(U.mode, mode); gl.uniform1i(U.solo, solo);
+  gl.viewport(0, 0, vw, vh); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
-// ---------------------------------------------------------------- nodes: live thumbnails, wires; click = that node's settings
-const nodeView = $('#nodes');
-nodeView.innerHTML = `<svg class="wires"><path id="w1"/><path id="w2"/><path id="wm" class="dash"/></svg>
-  <div class="node master" id="nMaster" data-grp="Master"><b>Master</b><span id="nMasterV"></span></div>
-  <div class="node" id="nLines" data-grp="Lines"><b>Lines</b><canvas width="90" height="160"></canvas></div>
-  <div class="node" id="nAlpha" data-grp="Alpha"><b>Alpha (levels)</b><canvas width="90" height="160"></canvas></div>
-  <div class="node out" id="nOut"><b>Out = lines x alpha</b><canvas width="90" height="160"></canvas></div>`;
-const thumb = (id) => $('#' + id + ' canvas').getContext('2d');
-const acv = document.createElement('canvas'); acv.width = TW; acv.height = TH; const acx = acv.getContext('2d'), aimg = acx.createImageData(TW, TH);
-const ext = (L) => {                                       // the same Extract as the shader, for the thumbnail (black = lines show)
-  const bp = num('xbp', 0), wp = num('xwp', 255), bs = num('xbs', 0), ws = num('xws', 0);
-  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / Math.max(1e-3, b - a))); return t * t * (3 - 2 * t); };
-  const a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
-  return num('xinv', 0) > 0.5 ? 1 - a : a;
-};
-let lastThumb = 0;
-function nodeThumbs() {
-  if (nodeView.hidden || performance.now() - lastThumb < 250) return; lastThumb = performance.now();
-  // keep the graph off the picture: while editing it sits in the free space right of the picture (if there is room)
-  const sr = $('#stage').getBoundingClientRect(), room = innerWidth - $('#settings').offsetWidth - 32 - sr.right;
-  nodeView.style.left = document.body.classList.contains('editing') && room > nodeView.offsetWidth + 16 ? (sr.right + 16) + 'px' : '';
-  thumb('nOut').drawImage(canvas, 0, 0, 90, 160);
-  render(false); thumb('nLines').drawImage(canvas, 0, 0, 90, 160); render(true);
-  const inv = num('xinv', 0) > 0.5, lm = levelMask();       // thumbnail: Extract x levels (black = full lines)
-  for (let i = 0; i < TN; i++) { let k = Math.min(5, Math.floor((1 - shape[i]) * 6)); if (inv) k = Math.min(5, Math.floor(shape[i] * 6)); const g = lm ? (lm >> k) & 1 : k / 5; const v = (1 - ext(shape[i] * 255) * g) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
-  acx.putImageData(aimg, 0, 0); thumb('nAlpha').drawImage(acv, 0, 0, 90, 160);
-  const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
-  const o = pt($('#nOut'), false);
-  $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px';
-  { const m = $('#nMaster').getBoundingClientRect(), l = $('#nLines').getBoundingClientRect(), x = m.left - r.left + m.width / 2;   // master -> the nodes that use it (dashed)
-    $('#wm').setAttribute('d', `M${x},${m.bottom - r.top} L${x},${l.top - r.top}`); }
-  for (const [w, n] of [['w1', 'nLines'], ['w2', 'nAlpha']]) { const p = pt($('#' + n), true); $('#' + w).setAttribute('d', `M${p[0]},${p[1]} C${p[0] + 30},${p[1]} ${o[0] - 30},${o[1]} ${o[0]},${o[1]}`); }
-}
-// the Edit panel shows the selected node's sliders only
+// ---------------------------------------------------------------- nodes: per level [Lines] [Alpha] -> [LevelNN]; all levels -> [Master]
+const nodeView = $('#nodes'), TWN = 54, THN = 96;
 document.body.classList.add('nodeedit');
+let selected = 'Level01 Lines';
+function buildNodes() {
+  const n = nLevels();
+  let h = '<svg class="wires"></svg>';
+  for (let k = 1; k <= n; k++) {
+    const L = 'Level' + pad(k);
+    h += `<div class="node" data-grp="${L} Lines" style="grid-row:${k};grid-column:1"><b>Lines</b><canvas id="tl${k}" width="${TWN}" height="${THN}"></canvas></div>
+      <div class="node" data-grp="${L} Alpha" style="grid-row:${k};grid-column:2"><b>Alpha</b><canvas id="ta${k}" width="${TWN}" height="${THN}"></canvas></div>
+      <div class="node out" data-out="${k}" style="grid-row:${k};grid-column:4"><b>${L}${k === n && n > 1 ? ' <i class="rm" title="Remove this level">x</i>' : ''}</b><canvas id="to${k}" width="${TWN}" height="${THN}"></canvas></div>`;
+  }
+  h += `<div class="node master" data-grp="Master" style="grid-row:1 / span ${n};grid-column:6"><b>Master</b><span id="nMasterV"></span><canvas id="tm" width="90" height="160"></canvas></div>
+    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 4"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
+  nodeView.innerHTML = h;
+  nodeView.style.gridTemplateColumns = 'auto auto 36px auto 36px auto';
+  for (const el of nodeView.querySelectorAll('.node[data-grp]')) el.onclick = () => { selectNode(el.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
+  const rm = nodeView.querySelector('.rm'); if (rm) rm.onclick = (e) => { e.stopPropagation(); removeLevel(); };
+  nodeView.querySelector('.addlvl').onclick = addLevel;
+  if (!nodeView.querySelector(`[data-grp="${selected}"]`)) selected = 'Level01 Lines';
+  selectNode(selected); lastThumb = 0;
+}
 function selectNode(grp) {
-  for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = !h.textContent.startsWith(grp); }
+  selected = grp;
+  for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = h.textContent !== grp; }
   $('#setHead').textContent = 'Edit: ' + grp;
   for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.classList.toggle('sel', n.dataset.grp === grp);
 }
-for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.onclick = () => { selectNode(n.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
-selectNode('Lines');
+// duplicate: the new level starts as a copy of the last one
+function addLevel() {
+  const n = nLevels(); if (n >= MAXL) return;
+  for (const key of ['w', 'a', 'dl', 'dg', 'bp', 'wp', 'bs', 'ws', 'inv']) {
+    const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
+    b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input'));
+    if (b.cb.checked !== a.cb.checked) b.cb.click();
+  }
+  chIn[n + 1].value = chIn[n].value; chIn[n + 1].dispatchEvent(new Event('input'));
+  nIn.value = String(n + 1); selected = `Level${pad(n + 1)} Lines`; buildNodes();
+}
+function removeLevel() { const n = nLevels(); if (n <= 1) return; nIn.value = String(n - 1); buildNodes(); }
+nIn.addEventListener('input', buildNodes);                // Set default restores the level count through this field
+
+// thumbnails: small renders (the shader at a small viewport), copied from the bottom-left corner of the canvas
+const grab = (id, w, h) => { const c = document.getElementById(id); if (c) c.getContext('2d').drawImage(canvas, 0, OH - h, w, h, 0, 0, w, h); };
+const acv = document.createElement('canvas'); acv.width = TW; acv.height = TH; const acx = acv.getContext('2d'), aimg = acx.createImageData(TW, TH);
+const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / Math.max(1e-3, b - a))); return t * t * (3 - 2 * t); };
+function alphaThumb(k) {                                 // the same Extract x channels as the shader (black = lines show)
+  const bp = num(`l${k}bp`, 0), wp = num(`l${k}wp`, 255), bs = num(`l${k}bs`, 0), ws = num(`l${k}ws`, 0), inv = num(`l${k}inv`, 0) > 0.5, lm = levelMask(k);
+  for (let i = 0; i < TN; i++) {
+    const L = shape[i] * 255;
+    let a = (bs > 0 ? ss(bp - bs, bp, L) : L >= bp ? 1 : 0) * (ws > 0 ? 1 - ss(wp, wp + ws, L) : L <= wp ? 1 : 0);
+    let g6 = (1 - shape[i]) * 6; if (inv) { a = 1 - a; g6 = 6 - g6; }
+    const kk = Math.min(5, Math.max(0, Math.floor(g6))), g = lm ? (lm >> kk) & 1 : kk / 5, v = (1 - a * g) * 255;
+    aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255;
+  }
+  acx.putImageData(aimg, 0, 0); const c = document.getElementById('ta' + k); if (c) c.getContext('2d').drawImage(acv, 0, 0, TWN, THN);
+}
+let lastThumb = 0;
+function nodeThumbs() {
+  if (nodeView.hidden || performance.now() - lastThumb < 300) return; lastThumb = performance.now();
+  const sr = $('#stage').getBoundingClientRect(), room = innerWidth - $('#settings').offsetWidth - 32 - sr.right;
+  nodeView.style.left = document.body.classList.contains('editing') && room > nodeView.offsetWidth + 16 ? (sr.right + 16) + 'px' : '';
+  const n = nLevels();
+  for (let k = 1; k <= n; k++) {
+    render(1, k - 1, TWN, THN); grab('tl' + k, TWN, THN);
+    render(2, k - 1, TWN, THN); grab('to' + k, TWN, THN);
+    alphaThumb(k);
+  }
+  render(0, 0, 90, 160); grab('tm', 90, 160);
+  render(0);                                             // the full picture again
+  $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px';
+  // wires: Lines and Alpha -> Level, every Level -> Master
+  const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
+  const curve = (p, q) => `<path d="M${p[0]},${p[1]} C${p[0] + 18},${p[1]} ${q[0] - 18},${q[1]} ${q[0]},${q[1]}"/>`;
+  const m = pt(nodeView.querySelector('.master'), false); let w = '';
+  for (let k = 1; k <= n; k++) {
+    const out = nodeView.querySelector(`[data-out="${k}"]`), o = pt(out, false);
+    w += curve(pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Lines"]`), true), o) + curve(pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true), o);
+    w += curve(pt(out, true), m);
+  }
+  nodeView.querySelector('.wires').innerHTML = w;
+}
 $('#nodebtn').onclick = () => { nodeView.hidden = !nodeView.hidden; $('#nodebtn').classList.toggle('on', !nodeView.hidden); try { localStorage.setItem('genArt002.nodes', nodeView.hidden ? '0' : '1'); } catch {} };
 nodeView.hidden = (() => { try { return localStorage.getItem('genArt002.nodes') === '0'; } catch { return false; } })();
 $('#nodebtn').classList.toggle('on', !nodeView.hidden);
+
+// ---------------------------------------------------------------- level channels: six grey buttons per level (like RGB channels)
+for (let k = 1; k <= MAXL; k++) {
+  const row = document.createElement('div'); row.className = 'chanrow';
+  row.innerHTML = '<span class="lab">Levels as matte</span><span class="chans">' +
+    [0, 1, 2, 3, 4, 5].map((j) => `<button type="button" data-k="${j}" style="--g:${Math.round(255 - j * 255 / 5)}"><i></i>${j}</button>`).join('') + '</span>';
+  [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Alpha`).nextElementSibling.append(row);
+  const inp = chIn[k], sel = () => new Set((inp.value || '').split(',').filter((x) => x !== '').map(Number));
+  const show = () => { const s = sel(); row.querySelectorAll('button').forEach((b) => b.classList.toggle('on', s.has(+b.dataset.k))); };
+  row.querySelectorAll('button').forEach((b) => { b.onclick = () => { const s = sel(), j = +b.dataset.k; if (s.has(j)) s.delete(j); else s.add(j); inp.value = [...s].sort().join(','); show(); }; });
+  inp.addEventListener('input', show); show();
+}
 
 // ---------------------------------------------------------------- loop
 let lastMedia = -1;
 function loop() {
   requestAnimationFrame(loop);
+  const now = performance.now(); evoT += (now - lastT) / 1000 * LOOK.drift; lastT = now;
   if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); }
-  if (toneReady) { render(); nodeThumbs(); }
+  if (toneReady) { setUniforms(); render(0); nodeThumbs(); }
 }
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-// ---------------------------------------------------------------- level channels (like RGB channels, but 6 grey levels)
-const chans = $('#xlevels');
-const chanRow = document.createElement('div'); chanRow.className = 'chanrow';
-chanRow.innerHTML = '<span class="lab">Levels as matte</span><span class="chans">' +
-  [0, 1, 2, 3, 4, 5].map((k) => `<button type="button" data-k="${k}" style="--g:${Math.round(255 - k * 255 / 5)}"><i></i>${k}</button>`).join('') + '</span>';
-const alphaBody = [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent.startsWith('Alpha')).nextElementSibling;
-alphaBody.append(chanRow);
-const sel = () => new Set((chans.value || '').split(',').filter((x) => x !== '').map(Number));
-function levelMask() { let m = 0; for (const k of sel()) m |= 1 << k; return m; }
-function showChans() { const s = sel(); chanRow.querySelectorAll('button').forEach((b) => b.classList.toggle('on', s.has(+b.dataset.k))); }
-chanRow.querySelectorAll('button').forEach((b) => { b.onclick = () => { const s = sel(), k = +b.dataset.k; if (s.has(k)) s.delete(k); else s.add(k); chans.value = [...s].sort().join(','); showChans(); }; });
-chans.addEventListener('input', showChans);            // Set default restores it through this field
-showChans();
-initDefaults('.r12');                                      // r12: Master node (spacing) + dashes (v2.12)                                      // r10: alpha in 6 grades (v2.08)
-window.__state = { P, tone, shape };
+buildNodes();
+initDefaults('.r13');                                      // r13: levels (Level01..06) into the Master (v2.13)
+window.__state = { P, tone, shape, nLevels, addLevel };
 requestAnimationFrame(loop);
 versionCheck();
 if (!noCam) await startCamera();
