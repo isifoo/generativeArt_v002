@@ -50,3 +50,6 @@ Every level is pure black lines on pure white; the Master multiplies the layers 
 
 ## Opaque channels, click to solo (v2.24)
 The matte is six fully opaque levels: a channel is on (100%) or off (0%); no channel chosen = on everywhere (the old grey ramp is gone). Clicking a node solos it and opens its settings; clicking it again turns solo off; clicking another node solos that one instead; clicking Master shows the full picture. The Solo buttons still solo several nodes at once.
+
+## Motion (v2.25)
+Master > Motion speed (universal, CSS variable --motion), default 0 = still. With motion 0 the picture is redrawn only when something changes (a video frame, a setting, solo / hide), so an idle page does no drawing work.

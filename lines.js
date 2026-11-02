@@ -17,7 +17,8 @@ let dirty = true;                                          // settings changed: 
 const LOOK = { thin: 0, amp: 86.5, len: 1090, drift: 0.06, con: 1.3, bri: 0, smooth: 0.6 };
 const SHAPE_PX = 16;                                       // the alpha's shapes are smoothed this much, so they are clean
 const pad = (k) => String(k).padStart(2, '0');
-const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' }];
+const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
+  { id: 'mmot', label: 'Motion speed', min: 0, max: 0.5, step: 0.005, val: 0, off: 'still' }];   // the waves drift; 0 = still
 for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { head: `Level${pad(k)} Lines` },
   { id: `l${k}w`, label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
@@ -40,9 +41,10 @@ buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
 // MASTER: universal values every node reads, kept as CSS variables on :root (like the palette in css/main.css).
 const root = document.documentElement;
-const MASTER = { spacing: 'mspc' };
+const MASTER = { spacing: 'mspc', motion: 'mmot' };
+const MDEF = { spacing: 15, motion: 0 };
 const MV = {};                                             // cached copy of the CSS variables, so the frame loop never asks the browser for styles
-function syncMaster() { for (const [k, id] of Object.entries(MASTER)) { MV[k] = num(id, 15); root.style.setProperty('--' + k, String(MV[k])); } dirty = true; }
+function syncMaster() { for (const [k, id] of Object.entries(MASTER)) { MV[k] = num(id, MDEF[k]); root.style.setProperty('--' + k, String(MV[k])); } dirty = true; }
 function master(k, def) { const v = MV[k]; return Number.isFinite(v) ? v : def; }
 for (const id of Object.values(MASTER)) { const el = $('#' + id); el.addEventListener('input', syncMaster); el.parentElement.querySelector('.onoff input').addEventListener('change', syncMaster); }
 syncMaster();
@@ -330,7 +332,7 @@ function nodeThumbs(now) {
   if (ovOn()) { ovx.drawImage(ovCanvas, 0, 0, 216, 384); }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
   if (tov) { const c = tov.getContext('2d'); c.imageSmoothingQuality = 'high'; c.fillStyle = '#fff'; c.fillRect(0, 0, TWN, THN); if (ovLoaded) c.drawImage(ovSmall, 0, 0, TWN, THN); }   // its last picture, also while hidden (dimmed)
   if (tm && ovOn()) { const c = tm.getContext('2d'); c.imageSmoothingQuality = 'high'; c.globalCompositeOperation = 'multiply'; c.globalAlpha = num('ovs', 0); c.drawImage(ovSmall, 0, 0, 90, 160); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; }
-  $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px';
+  $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px' + (master('motion', 0) > 0 ? ' · motion ' + master('motion', 0) : '');
 }
 function layoutNodes() {                                 // the panel's place and its wires, redrawn only when something moved
   if (nodeView.hidden) return;
@@ -390,21 +392,23 @@ for (let k = 1; k <= MAXL; k++) {
 // ---------------------------------------------------------------- loop
 // Draws only when there is something new: a video frame, a changed setting, or the slow drift (capped at 30 per second).
 for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => { dirty = true; }, true);
-let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0;
+let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true;
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); thumbDirty = true; }
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); thumbDirty = true; fresh = true; }
   if (!toneReady || now - lastDraw < FRAME_MS) return;
+  const speed = master('motion', 0);                      // Master > Motion speed (0 = still)
+  if (!fresh && !dirty && !thumbDirty && speed <= 0) { lastT = now; return; }   // nothing changed: no redraw at all
   const t0 = performance.now();
-  evoT += Math.min(0.1, (now - lastT) / 1000) * LOOK.drift; lastT = now; lastDraw = now;
+  evoT += Math.min(0.1, (now - lastT) / 1000) * speed; lastT = now; lastDraw = now; fresh = false;
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
   nodeThumbs(now);
   render(0);                                             // the full picture (solo / hide applied), always last
   frames++; drawMs += performance.now() - t0;
 }
-$('#restart').onclick = () => { evoT = 0; };
+$('#restart').onclick = () => { evoT = 0; dirty = true; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => {
   $('#stats').innerHTML = `<tr><td>drawn at</td><td>${canvas.width} x ${canvas.height}</td></tr><tr><td>frames / s</td><td>${frames}</td></tr><tr><td>CPU per frame</td><td>${frames ? (drawMs / frames).toFixed(1) : '-'} ms</td></tr>`;
