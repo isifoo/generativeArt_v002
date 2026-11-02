@@ -394,18 +394,25 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
 };
 
 const DRAW = /* wgsl */`
-struct DU { a:vec4f, col:vec4f, b:vec4f, c:vec4f, d:vec4f };   // c (Dollar 3 dashes): dash length px, continuous from darkness, shortest dash, on
+struct DU { a:vec4f, col:vec4f, b:vec4f, c:vec4f, d:vec4f, e:vec4f };   // e (Fractal Lines wave): height, length (sim px), angle, on   // c (Dollar 3 dashes): dash length px, continuous from darkness, shortest dash, on
                                                          // d (Fractal Lines width by tone): on, thinnest share, contrast, brightness
 @group(0) @binding(0) var<uniform> du:DU;
 @group(0) @binding(1) var<storage, read> pts: array<vec2f>;
 @group(0) @binding(2) var<storage, read> mt: array<u32>;
 @group(0) @binding(3) var<storage, read> dark: array<f32>;      // smoothed darkness (0 light .. 1 dark), sim px
 fn hsh(v:f32)->f32 { return fract(sin(v*12.9898)*43758.5453); }
+// Fractal Lines wave: the whole drawing ripples by height * sin(2 pi * position along the wave / length), across the wave
+// direction. Neighbouring lines move together, so the spacing stays uniform.
+fn wave(p:vec2f)->vec2f {
+  if (du.e.w < 0.5) { return p; }
+  let k = vec2f(cos(du.e.z), -sin(du.e.z));
+  return p + vec2f(-k.y, k.x) * du.e.x * sin(6.2831853 * dot(p, k) / du.e.y);
+}
 fn snap(p:vec2f)->vec2f { return select(p, floor(p/du.b.y + 0.5)*du.b.y, du.b.x > 0.5); }
 @vertex fn vs(@builtin(vertex_index) vi:u32, @builtin(instance_index) ii:u32) -> @builtin(position) vec4f {
   let N = mt[0];
   let q = vi/6u; let c = array<u32,6>(0u,1u,2u,2u,1u,3u)[vi%6u];
-  let P0 = snap(pts[ii]); let P1 = snap(pts[(ii + 1u) % N]);
+  let P0 = wave(snap(pts[ii])); let P1 = wave(snap(pts[(ii + 1u) % N]));
   // mode 1: two axis-aligned legs per segment, elbow at (P1.x, P0.y)
   let E = select(P1, vec2f(P1.x, P0.y), du.b.x > 0.5);
   let A = select(P0, E, q == 1u)*du.a.x;
@@ -502,7 +509,7 @@ const B = {
   pos: mk(MAXN * 8, S | CD), mv: mk(MAXN * 16, S), head: mk(GW * GH * 4, S), nxt: mk(MAXN * 4, S),
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
   s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
-  du: mk(80, GPUBufferUsage.UNIFORM | CD),
+  du: mk(96, GPUBufferUsage.UNIFORM | CD),
 };
 const bu = (a) => { const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | CD }); device.queue.writeBuffer(b, 0, new Float32Array(a)); return b; };
 const BU = {
@@ -605,6 +612,10 @@ const SLIDERS_FL = [
   { head: 'Tone' },
   { id: 'con', label: 'Contrast', min: 0.2, max: 4, step: 0.01, val: 1.3, off: '1' },
   { id: 'bri', label: 'Brightness', min: -0.6, max: 0.6, step: 0.01, val: 0, off: '0' },
+  { head: 'Wave (y = height x sin)' },
+  { id: 'wh', label: 'Wave height px', min: 0, max: 80, step: 0.5, val: 0, off: 'no wave' },
+  { id: 'wl', label: 'Wave length px', min: 20, max: 1500, step: 5, val: 300, off: '300' },
+  { id: 'wa', label: 'Wave angle deg', min: -90, max: 90, step: 1, val: 0, off: '0' },
   { head: 'Curves' },
   { id: 'tens', label: 'Straightening', min: 0.1, max: 0.98, step: 0.01, val: 0.3, off: 'V1 (0.30)' },
   { id: 'jit', label: 'Wiggle', min: 0, max: 0.2, step: 0.001, val: 0.05, off: 'V1 (0.05)' },
@@ -805,8 +816,9 @@ function encodeDraw(enc) {
   for (let k = 0; k < extra; k++) { run(enc, 'smooth', G.sm4, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth'); }
   const bw = CALM && !$('#e2pal').checked, fg = bw ? [18, 18, 18] : P.fg;              // Dollar 3: black ink unless the palette is asked for
   const dash = D3 && P.on.dl ? [P.dl, P.on.dfull ? P.dfull : 99, P.on.dmin ? P.dmin : 0.25, 1] : [12, 1, 0.25, 0];
+  const wv = FL && P.on.wh && P.wh > 0 ? [P.wh / SCALE, (P.on.wl ? P.wl : 300) / SCALE, (P.on.wa ? P.wa : 0) * Math.PI / 180, 1] : [0, 1, 0, 0];   // output px -> sim px
   const wt = FL ? [1, P.on.wmin ? P.wmin : 1, P.on.con ? P.con : 1, P.on.bri ? P.bri : 0] : [0, 1, 1, 0];
-  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash, ...wt]));
+  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash, ...wt, ...wv]));
   const d = {
     colorAttachments: [{ view: msaaView, resolveTarget: ctx.getCurrentTexture().createView(),
       clearValue: CALM && !$('#e2pal').checked ? { r: 1, g: 1, b: 1, a: 1 } : { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
