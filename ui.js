@@ -245,6 +245,22 @@ export function initDefaults(rev = '') {
     catch { flash($('#setdef'), 'Could not save'); }
   };
   $('#resetdef').onclick = () => { if (!owner.on) return; try { localStorage.removeItem(STORE); localStorage.removeItem(PALKEY); } catch {} location.reload(); };
+  // a settings file: this style's sliders, levels, nodes, channels and the palette. Anyone can save and load one.
+  $('#savefile').onclick = () => {
+    const o = { app: 'generativeArt_v002', view: VIEW, rev, saved: new Date().toISOString(), settings: snapshot(), palette: serializePalette() };
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(o, null, 1)], { type: 'application/json' }));
+    a.download = `${VIEW}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    flash($('#savefile'), 'Saved');
+  };
+  $('#loadfile').onclick = () => $('#loadin').click();
+  $('#loadin').onchange = async () => {
+    const f = $('#loadin').files[0]; $('#loadin').value = ''; if (!f) return;
+    try {
+      const o = JSON.parse(await f.text());
+      if (o.view && o.view !== VIEW) { flash($('#loadfile'), 'File is for ' + o.view); return; }
+      apply(o.settings || o); if (o.palette) restorePalette(o.palette); flash($('#loadfile'), 'Loaded');
+    } catch { flash($('#loadfile'), 'Not a settings file'); }
+  };
   // everything saved in this browser, as one JSON: send it to make it the site's defaults for every visitor (site-defaults.json)
   $('#copydef').onclick = async () => {
     if (!owner.on) return;
