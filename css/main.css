@@ -92,3 +92,7 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #pinbox input, .pinbox input { width:76px; text-align:center; letter-spacing:.4em; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px; font:inherit; }
 .pinbox input.bad { border-color:var(--accent); animation:shake .3s; }
 @keyframes shake { 25% { transform:translateX(-4px); } 75% { transform:translateX(4px); } }
+
+/* save bar: right under the Edit header */
+.savebar { margin:0 0 10px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+#setdef { background:var(--accent); border-color:var(--accent); color:#fff; }
