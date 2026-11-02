@@ -16,17 +16,15 @@ const SLIDERS = [
   { id: 'flsp', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
   { id: 'flw', label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
   { id: 'fla', label: 'Angle deg', min: -90, max: 90, step: 1, val: -6, off: '0' },
-  { head: 'Alpha (Extract, 6 grades)' },
+  { head: 'Alpha (Extract + 6 levels)' },
   { id: 'xbp', label: 'Black Point', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xwp', label: 'White Point', min: 0, max: 255, step: 1, val: 255, off: '255' },
   { id: 'xbs', label: 'Black Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xws', label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: 'xinv', label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
-  { id: 'xlvl', label: 'Show level', min: 0, max: 5, step: 1, val: 5, off: 'all 6 levels (graded)' },
 ];
 const P = {};
 buildSliders(SLIDERS, P);
-document.querySelector('#xlvl').parentElement.querySelector('.onoff input').click();   // Show level starts off: all 6 levels
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
 
 // ---------------------------------------------------------------- tone (CPU, small and soft)
@@ -65,7 +63,8 @@ precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D toneT, softT, shapeT;
 uniform vec2 res;
-uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv, lvl;   // lvl: one level 0..5 only, -1 = all graded
+uniform float sp, wid, ang, evo, useAlpha, bp, wp, bs, ws, inv;
+uniform int lmask;                                       // level channels switched on (bit k = level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, VAR = ${LOOK.variation.toFixed(3)};
 const float FLIP = ${LOOK.flip.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
 float h21(vec2 q) { q = fract(q * vec2(127.1, 311.7)); q += dot(q, q + 34.53); return fract(q.x * q.y); }
@@ -92,10 +91,12 @@ void main() {
   float lo = smoothstep(bp - bs - aa, bp, L);
   float hi = 1.0 - smoothstep(wp, wp + ws + aa, L);
   float a = lo * hi; if (inv > 0.5) a = 1.0 - a;
-  // 6 grades of shade (0 light .. 5 dark): the luma cut into flat steps; the lines get grade / 5 of their strength
-  float g6 = (1.0 - L / 255.0) * 5.0, ag = fwidth(g6) + 1e-3, gq = (floor(g6) + smoothstep(0.5 - ag, 0.5 + ag, fract(g6))) / 5.0;
-  if (inv > 0.5) gq = 1.0 - gq;
-  if (lvl > -0.5) { float k = gq * 5.0; gq = 1.0 - smoothstep(0.35, 0.65, abs(k - lvl)); }   // only that level, at full strength
+  // 6 grey levels (0 lightest .. 5 darkest): six equal bands of the luma, used like channels.
+  // Levels switched on = the matte (lines there at full strength, nowhere else); none on = all six graded (k / 5).
+  float g6 = (1.0 - L / 255.0) * 6.0;
+  if (inv > 0.5) g6 = 6.0 - g6;
+  int k = clamp(int(floor(g6)), 0, 5);
+  float gq = lmask == 0 ? float(k) / 5.0 : float((lmask >> k) & 1);
   if (useAlpha > 0.5) inkv *= a * gq;
   o = vec4(mix(vec3(1.0), vec3(0.07), inkv), 1.0);
 }`;
@@ -112,7 +113,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv', 'lvl']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'softT', 'shapeT', 'res', 'sp', 'wid', 'ang', 'evo', 'useAlpha', 'bp', 'wp', 'bs', 'ws', 'inv', 'lmask']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -129,7 +130,7 @@ function render(withAlpha = true) {
   }
   gl.uniform2f(U.res, OW, OH); gl.uniform1f(U.sp, num('flsp', 15)); gl.uniform1f(U.wid, num('flw', 0.6)); gl.uniform1f(U.ang, num('fla', 0) * Math.PI / 180);
   gl.uniform1f(U.evo, evoT * 6.2831853); gl.uniform1f(U.useAlpha, withAlpha ? 1 : 0);
-  gl.uniform1f(U.bp, num('xbp', 0)); gl.uniform1f(U.wp, num('xwp', 255)); gl.uniform1f(U.bs, num('xbs', 0)); gl.uniform1f(U.ws, num('xws', 0)); gl.uniform1f(U.inv, num('xinv', 0)); gl.uniform1f(U.lvl, P.on.xlvl === false ? -1 : P.xlvl);
+  gl.uniform1f(U.bp, num('xbp', 0)); gl.uniform1f(U.wp, num('xwp', 255)); gl.uniform1f(U.bs, num('xbs', 0)); gl.uniform1f(U.ws, num('xws', 0)); gl.uniform1f(U.inv, num('xinv', 0)); gl.uniform1i(U.lmask, levelMask());
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
@@ -137,7 +138,7 @@ function render(withAlpha = true) {
 const nodeView = $('#nodes');
 nodeView.innerHTML = `<svg class="wires"><path id="w1"/><path id="w2"/></svg>
   <div class="node" id="nLines" data-grp="Lines"><b>Lines</b><canvas width="90" height="160"></canvas></div>
-  <div class="node" id="nAlpha" data-grp="Alpha (Extract)"><b>Alpha (Extract)</b><canvas width="90" height="160"></canvas></div>
+  <div class="node" id="nAlpha" data-grp="Alpha"><b>Alpha (levels)</b><canvas width="90" height="160"></canvas></div>
   <div class="node out" id="nOut"><b>Out = lines x alpha</b><canvas width="90" height="160"></canvas></div>`;
 const thumb = (id) => $('#' + id + ' canvas').getContext('2d');
 const acv = document.createElement('canvas'); acv.width = TW; acv.height = TH; const acx = acv.getContext('2d'), aimg = acx.createImageData(TW, TH);
@@ -155,8 +156,8 @@ function nodeThumbs() {
   nodeView.style.left = document.body.classList.contains('editing') && room > nodeView.offsetWidth + 16 ? (sr.right + 16) + 'px' : '';
   thumb('nOut').drawImage(canvas, 0, 0, 90, 160);
   render(false); thumb('nLines').drawImage(canvas, 0, 0, 90, 160); render(true);
-  const inv = num('xinv', 0) > 0.5;                          // thumbnail: Extract x 6 grades (black = full lines)
-  for (let i = 0; i < TN; i++) { let g = Math.round((1 - shape[i]) * 5) / 5; if (inv) g = 1 - g; if (P.on.xlvl !== false) g = Math.round(g * 5) === P.xlvl ? 1 : 0; const v = (1 - ext(shape[i] * 255) * g) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
+  const inv = num('xinv', 0) > 0.5, lm = levelMask();       // thumbnail: Extract x levels (black = full lines)
+  for (let i = 0; i < TN; i++) { let k = Math.min(5, Math.floor((1 - shape[i]) * 6)); if (inv) k = Math.min(5, Math.floor(shape[i] * 6)); const g = lm ? (lm >> k) & 1 : k / 5; const v = (1 - ext(shape[i] * 255) * g) * 255; aimg.data[i * 4] = aimg.data[i * 4 + 1] = aimg.data[i * 4 + 2] = v; aimg.data[i * 4 + 3] = 255; }
   acx.putImageData(aimg, 0, 0); thumb('nAlpha').drawImage(acv, 0, 0, 90, 160);
   const r = nodeView.getBoundingClientRect(), pt = (el, right) => { const b = el.getBoundingClientRect(); return [right ? b.right - r.left : b.left - r.left, b.top - r.top + b.height / 2]; };
   const o = pt($('#nOut'), false);
@@ -185,7 +186,20 @@ function loop() {
 $('#restart').onclick = () => { evoT = 0; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => { $('#stats').innerHTML = '<tr><td>one pixel shader</td><td>' + OW + ' x ' + OH + '</td></tr>'; }, 1000);
-initDefaults('.r10');                                      // (v2.09 added Show level, off by default)                                      // r10: alpha in 6 grades (v2.08)
+// ---------------------------------------------------------------- level channels (like RGB channels, but 6 grey levels)
+const chans = $('#xlevels');
+const chanRow = document.createElement('div'); chanRow.className = 'chanrow';
+chanRow.innerHTML = '<span class="lab">Levels as matte</span><span class="chans">' +
+  [0, 1, 2, 3, 4, 5].map((k) => `<button type="button" data-k="${k}" style="--g:${Math.round(255 - k * 255 / 5)}"><i></i>${k}</button>`).join('') + '</span>';
+const alphaBody = [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent.startsWith('Alpha')).nextElementSibling;
+alphaBody.append(chanRow);
+const sel = () => new Set((chans.value || '').split(',').filter((x) => x !== '').map(Number));
+function levelMask() { let m = 0; for (const k of sel()) m |= 1 << k; return m; }
+function showChans() { const s = sel(); chanRow.querySelectorAll('button').forEach((b) => b.classList.toggle('on', s.has(+b.dataset.k))); }
+chanRow.querySelectorAll('button').forEach((b) => { b.onclick = () => { const s = sel(), k = +b.dataset.k; if (s.has(k)) s.delete(k); else s.add(k); chans.value = [...s].sort().join(','); showChans(); }; });
+chans.addEventListener('input', showChans);            // Set default restores it through this field
+showChans();
+initDefaults('.r11');                                      // r11: level channels (v2.10)                                      // r10: alpha in 6 grades (v2.08)
 window.__state = { P, tone, shape };
 requestAnimationFrame(loop);
 versionCheck();
