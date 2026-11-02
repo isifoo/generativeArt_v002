@@ -1,6 +1,6 @@
 // FRACTAL LINES: levels of lines, composited by the Master.
 //  Each level (Level01 .. Level06) = [Lines] + [Alpha] -> [LevelNN]:
-//   [Lines]  procedural lines: a pure sine (height x sin(2 pi x / length), drifting slowly), every line the same wave
+//   [Lines]  procedural lines at one fixed Width (not by tone): a pure sine (height x sin(2 pi x / length), drifting slowly), every line the same wave
 //            shifted by the master spacing, so they never bunch. Width by tone; Width, Angle, Dash length, Dash gap.
 //   [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes) + six grey level channels (0-5) as the matte.
 //  [Master] universal values (CSS variables on :root, read with master(name)) and the output: the levels stacked like ink
@@ -127,7 +127,7 @@ float level(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {
   float a = withAlpha ? alpha(i, L, aa) : 1.0;           // the matte first: where it is 0 the lines are never worked out
   if (a < 0.004) return 0.0;
   vec4 p = Lp[i];
-  float hw = 0.5 * p.x * mix(THIN, 1.0, dk);
+  float hw = 0.5 * p.x;                                  // full Width wherever the matte lets the level through: the six channels decide visibility, not the luma
   if (hw < 0.05) return 0.0;
   vec2 t = Lt[i].xy, nrm = vec2(-t.y, t.x);
   float s = dot(px, t), arg = K * s + evo;
@@ -146,22 +146,24 @@ void main() {
   vec2 px = uv * res;
   float dk = clamp((0.5 - texture(toneT, uv).r) * CON + 0.5 - BRI, 0.0, 1.0);
   float L = texture(shapeT, uv).r * 255.0, aa = fwidth(L) + 1e-3;
-  float ink = 0.0;
+  // EVERY LAYER IS BLACK LINES ON WHITE (value = 1 - ink), and the Master MULTIPLIES them, like Multiply in After Effects:
+  // white x anything = anything, black x anything = black, so lines of every layer show through each other.
+  float v = 1.0;
   if (mode == 0) {
     for (int i = 0; i < ${MAXL}; i++) {
-      if (i >= nL || ink > 0.996) break;
+      if (i >= nL || v < 0.004) break;
       int sh = Lshow[i]; if (sh == 0) continue;
-      if ((sh & 4) != 0) ink = 1.0 - (1.0 - ink) * (1.0 - level(i, px, dk, L, aa, true));
-      if ((sh & 1) != 0) ink = 1.0 - (1.0 - ink) * (1.0 - level(i, px, dk, L, aa, false));
-      if ((sh & 2) != 0) ink = 1.0 - (1.0 - ink) * (1.0 - alpha(i, L, aa));
+      if ((sh & 4) != 0) v *= 1.0 - level(i, px, dk, L, aa, true);    // the level: lines x matte
+      if ((sh & 1) != 0) v *= 1.0 - level(i, px, dk, L, aa, false);   // soloed Lines: the lines alone
+      if ((sh & 2) != 0) v *= 1.0 - alpha(i, L, aa);                  // soloed Alpha: the matte (black = lines show)
     }
   }
-  else if (mode == 3) ink = alpha(solo, L, aa);
-  else if (mode == 4) ink = 0.0;
-  else if (mode == 2 && (Lhide[solo] & 1) != 0) ink = 0.0;   // level thumbnail: its Lines are hidden
-  else ink = level(solo, px, dk, L, aa, mode == 2);
-  if (pxs > 4.0) ink = 1.0 - pow(1.0 - ink, 4.0);         // node thumbnails: darker, so the shapes read at that size
-  o = vec4(mix(vec3(1.0), vec3(0.07), ink), 1.0);
+  else if (mode == 3) v = 1.0 - alpha(solo, L, aa);
+  else if (mode == 4) v = 1.0;
+  else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
+  else v = 1.0 - level(solo, px, dk, L, aa, mode == 2);
+  if (pxs > 4.0) v = pow(v, 4.0);                         // node thumbnails: darker, so the shapes read at that size
+  o = vec4(vec3(v), 1.0);                                 // pure black ink on pure white paper
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -225,7 +227,7 @@ function buildNodes() {
       <div class="node out" data-out="${k}" style="grid-row:${k};grid-column:4"><b>${L}${sh('O' + k)}${k === n && n > 1 ? ' <i class="rm" title="Remove this level">x</i>' : ''}</b><canvas id="to${k}" width="${TWN}" height="${THN}"></canvas></div>`;
   }
   h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay${sh('OV')}</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
-    <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><canvas id="tm" width="90" height="160"></canvas></div>
+    <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><span class="mmode">Multiply</span><canvas id="tm" width="90" height="160"></canvas></div>
     <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';

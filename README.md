@@ -44,3 +44,6 @@ The Levels-as-matte buttons read 0 = darkest .. 5 = lightest, left to right. Onl
 
 ## Studio layout and AE solo / hide (v2.22)
 Fractal Lines: nodes on the left (the graph scales to fit), the picture always centred, the settings always open on the right; phones stack picture, nodes, settings. Solo / Hide work like After Effects: several nodes can be soloed at once (the Master shows only them, each as itself: Lines = lines alone, Alpha = the matte, Level = lines x matte, Overlay); Hide always wins, also over Solo; wires from hidden nodes are dashed; removing a level clears its solo. Tested with pixel comparisons (drift frozen): 29 checks.
+
+## Black on white, Multiply, channels only (v2.23)
+Every level is pure black lines on pure white; the Master multiplies the layers (like Multiply in After Effects; the overlay multiplies on top). Lines are drawn at their full Width wherever the level's channels let them through: the luma no longer thins them, so every channel 0-5 draws at the same density (measured: 20.8-21.5% ink inside each channel for width 3 / spacing 15). Multiply measured exact (composite = product of the soloed levels, within rounding).
