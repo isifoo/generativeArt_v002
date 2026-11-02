@@ -5,8 +5,11 @@
 //   [Alpha]  AE Extract on the video's luminance (smoothed into clean shapes) + six grey level channels (0-5) as the matte.
 //  [Master] universal values (CSS variables on :root, read with master(name)) and the output: the levels stacked like ink
 //           (multiply: 1 - product of (1 - ink)), so the paper stays white and every level shows.
+// [Overlay] on top of everything: the Dollar engraving (Dollar 1's layer, with its v2.02 look: soft, detailed), multiplied over
+//           the picture at 'Strength'. It has its own depth model, loaded only when the overlay is on.
 // + Duplicate level copies the last level into a new one (up to 6). Click a node: Edit shows that node's settings only.
 import { $, vid, cam, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
+import { createDepthModel } from './depthmodel.js';
 
 const OW = 1080, OH = 1920, MAXL = 6;
 let dirty = true;                                          // settings changed: upload uniforms and refresh the node thumbnails
@@ -28,6 +31,10 @@ for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { id: `l${k}ws`, label: 'White Softness', min: 0, max: 255, step: 1, val: 0, off: '0' },
   { id: `l${k}inv`, label: 'Invert', min: 0, max: 1, step: 1, val: 0, off: 'not inverted' },
 );
+SLIDERS.push({ head: 'Overlay' },
+  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no overlay' },
+  { id: 'dpq', label: 'Depth detail', min: 12, max: 37, step: 1, val: 22, off: 'lowest' },
+  { id: 'dps', label: 'Depth smoothing', min: 0, max: 0.97, step: 0.01, val: 0.85, off: 'none' });
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -179,7 +186,7 @@ function render(mode = 0, solo = 0, vw = canvas.width, vh = canvas.height) {
 }
 
 // ---------------------------------------------------------------- nodes: per level [Lines] [Alpha] -> [LevelNN]; all levels -> [Master]
-const nodeView = $('#nodes'), TWN = 54, THN = 96;
+const nodeView = $('#nodes'), TWN = 54, THN = 96, OV_TONE = 'Overlay Dollar: Tone (contrast map)';
 document.body.classList.add('nodeedit');
 let selected = 'Level01 Lines';
 function buildNodes() {
@@ -191,8 +198,9 @@ function buildNodes() {
       <div class="node" data-grp="${L} Alpha" style="grid-row:${k};grid-column:2"><b>Alpha</b><canvas id="ta${k}" width="${TWN}" height="${THN}"></canvas></div>
       <div class="node out" data-out="${k}" style="grid-row:${k};grid-column:4"><b>${L}${k === n && n > 1 ? ' <i class="rm" title="Remove this level">x</i>' : ''}</b><canvas id="to${k}" width="${TWN}" height="${THN}"></canvas></div>`;
   }
-  h += `<div class="node master" data-grp="Master" style="grid-row:1 / span ${n};grid-column:6"><b>Master</b><span id="nMasterV"></span><canvas id="tm" width="90" height="160"></canvas></div>
-    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 4"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
+  h += `<div class="node" data-grp="Overlay" style="grid-row:${n + 1};grid-column:4"><b>Overlay</b><canvas id="tov" width="${TWN}" height="${THN}"></canvas></div>
+    <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><canvas id="tm" width="90" height="160"></canvas></div>
+    <button type="button" class="addlvl" style="grid-row:${n + 1};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = h;
   nodeView.style.gridTemplateColumns = 'auto auto 36px auto 36px auto';
   for (const el of nodeView.querySelectorAll('.node[data-grp]')) el.onclick = () => { selectNode(el.dataset.grp); if (!document.body.classList.contains('editing')) $('#setbtn').click(); };
@@ -203,7 +211,9 @@ function buildNodes() {
 }
 function selectNode(grp) {
   selected = grp;
-  for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = h.textContent !== grp; }
+  // the Overlay node shows its own group and the engraving's tone group (the rest of the engraving keeps its v2.02 values)
+  const show = (t) => t === grp || (grp === 'Overlay' && t === OV_TONE);
+  for (const h of document.querySelectorAll('#sliders h2.grp')) { h.hidden = true; h.nextElementSibling.hidden = !show(h.textContent); }
   $('#setHead').textContent = 'Edit: ' + grp;
   for (const n of nodeView.querySelectorAll('.node[data-grp]')) n.classList.toggle('sel', n.dataset.grp === grp);
 }
@@ -251,6 +261,10 @@ function nodeThumbs(now) {
     alphaThumb(k);
   }
   render(0, 0, 90, 160); grab('tm', 90, 160);
+  const tov = document.getElementById('tov'), tm = document.getElementById('tm');
+  if (ovOn()) { ovx.drawImage(ovCanvas, 0, 0, 216, 384); }    // shrink in two steps (1080 -> 216 -> node) so the fine lines average to grey instead of aliasing
+  if (tov) { const c = tov.getContext('2d'); c.imageSmoothingQuality = 'high'; c.fillStyle = '#fff'; c.fillRect(0, 0, TWN, THN); if (ovOn()) c.drawImage(ovSmall, 0, 0, TWN, THN); }
+  if (tm && ovOn()) { const c = tm.getContext('2d'); c.imageSmoothingQuality = 'high'; c.globalCompositeOperation = 'multiply'; c.globalAlpha = num('ovs', 0); c.drawImage(ovSmall, 0, 0, 90, 160); c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; }
   $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px';
 }
 function layoutNodes() {                                 // the panel's place and its wires, redrawn only when something moved
@@ -267,6 +281,7 @@ function layoutNodes() {                                 // the panel's place an
     w += curve(pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Lines"]`), true), o) + curve(pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true), o);
     w += curve(pt(out, true), m);
   }
+  w += curve(pt(nodeView.querySelector('[data-grp="Overlay"]'), true), m);
   nodeView.querySelector('.wires').innerHTML = w;
 }
 setInterval(layoutNodes, 250);                           // cheap: two layout reads, the SVG only when the size changed
@@ -320,8 +335,23 @@ setInterval(() => {
   $('#stats').innerHTML = `<tr><td>drawn at</td><td>${canvas.width} x ${canvas.height}</td></tr><tr><td>frames / s</td><td>${frames}</td></tr><tr><td>CPU per frame</td><td>${frames ? (drawMs / frames).toFixed(1) : '-'} ms</td></tr>`;
   frames = 0; drawMs = 0;
 }, 1000);
+// ---------------------------------------------------------------- overlay: the Dollar engraving on top (multiply), with its own depth model
+const ovCanvas = document.createElement('canvas');
+ovCanvas.style.cssText = 'mix-blend-mode:multiply;pointer-events:none;opacity:0';
+canvas.after(ovCanvas);
+const ovSmall = document.createElement('canvas'); ovSmall.width = 216; ovSmall.height = 384; const ovx = ovSmall.getContext('2d'); ovx.imageSmoothingQuality = 'high';
+const ovOn = () => P.on.ovs !== false && P.ovs > 0;
+const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => {});
+let ovLoaded = false;
+function ovStyle() { ovCanvas.style.opacity = ovOn() ? num('ovs', 0) : 0; if (ovOn() && !ovLoaded) { ovLoaded = true; DM.load(); } thumbDirty = true; }
+// the look Gerry liked (v2.02): the engraving's own defaults; depth detail 22, smoothing 0.85, strength 0.6
+window.__dollarOverlay = { canvas: ovCanvas, dm: DM, on: ovOn, defaults: null };
+await import('./engrave.js?b=' + (document.querySelector('meta[name=build]')?.content || 0));
+for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);   // capture (restored settings too), read after the slider has updated
+setInterval(() => { if (ovOn() && DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100);   // depth for the overlay, only while it is on
 buildNodes();
-initDefaults('.r13');                                      // r13: levels (Level01..06) into the Master (v2.13)
+initDefaults('.r13');
+ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
 window.__state = { P, tone, shape, nLevels, addLevel, canvas };
 requestAnimationFrame(loop);
 versionCheck();

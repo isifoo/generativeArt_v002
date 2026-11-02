@@ -326,6 +326,7 @@ let lastMedia = -1;
 function loop() {
   requestAnimationFrame(loop);
   if (vid.readyState < 2 || !vid.videoWidth) return;
+  if (OV && !OV.on()) return;                                  // overlay switched off: no work at all
   const fresh = vid.currentTime !== lastMedia; lastMedia = vid.currentTime;
   if (fresh || dirty) updateTone();
   if (!OV && M.ready && !M.busy && (fresh || !M.have)) DM.infer();

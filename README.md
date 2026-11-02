@@ -29,3 +29,6 @@ Edit > Save file downloads every setting of the current style (sliders, max valu
 
 ## Autosave (v2.16)
 Every change is saved in this browser automatically (once a second, and when the page is closed or hidden), separately for each style, and comes back on refresh. Edit > Start over forgets it and goes back to the defaults. It lives in this browser only: use Save file to move a setup to another device.
+
+## Fractal Lines Overlay node (v2.17)
+An [Overlay] node feeds the Master: the Dollar engraving (engrave.js in overlay mode, the soft and detailed v2.02 look of Dollar 1: levels clip 2, local contrast 1.65, contrast 1.1, brightness 0.13, depth detail 22, smoothing 0.85) multiplied on top at Strength 0.6. Its panel shows Strength, Depth detail, Depth smoothing and the engraving tone group only. The depth model loads only when the overlay is on; at Strength off nothing runs.
