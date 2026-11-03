@@ -1,0 +1,396 @@
+[
+ {
+  "id": "001",
+  "file": "img/001.webp",
+  "title": "Flow lines (ETF + FDoG)",
+  "notes": "Finds the dominant direction at every point (edge tangent flow from a smoothed structure tensor), then runs a Kang-style flow-based difference of Gaussians along it. The specks are gone and the main forms (head, ear, brows, eye bags, neck curve, shirt folds) become clean continuous lines. Weakness: it is an edge finder, so thick darks turn into double outlines (the neck curve, the head) and the beard and shirt still read as many short dashes rather than long strokes.",
+  "params": {
+   "Hit": "70%",
+   "Noise": "0%",
+   "Ink": "10%",
+   "Method": "structure-tensor ETF, flow-based DoG, tanh threshold, specks < 40 px removed",
+   "Key settings": "ETF sigma 10.0, DoG sigma 2.0, rho 0.99, flow sigma 6.0, tau 0.35",
+   "Live in the app": "GPU, 4 passes (tensor, tensor blur x2 separable, FDoG across + along flow); real time at full res"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "002",
+  "file": "img/002.webp",
+  "title": "Smeared along the flow (LIC)",
+  "notes": "Smears the overlay's own dark dots along the flow direction (line integral convolution, two passes of about 14 px each way), then re-thresholds softly. Specks become short brushy streaks that follow the form, so the beard, shirt and skull get a hatched, combed texture. Weakness: strokes are short and uniform, and the areas still look busy; it reads as a bold woodcut more than a line drawing: the eyes close up and the lower shirt turns into large black fills. Cleaner than the input, but strokes are short and do not yet connect along Gerry's marks.",
+  "params": {
+   "Hit": "66%",
+   "Noise": "0%",
+   "Ink": "22%",
+   "Method": "structure-tensor ETF, 2-pass Gaussian LIC on darkness, contrast boost, soft threshold, specks < 40 px removed",
+   "Key settings": "ETF sigma 8.0, LIC length 14 px each way x 2 passes, threshold 0.36, softness 0.05",
+   "Live in the app": "GPU, 3-4 passes (tensor + blur, then 2 LIC passes of ~24 texture taps each); real time at full res"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "003",
+  "file": "img/003.webp",
+  "title": "Traced brush strokes (connect the dots)",
+  "notes": "Measures the density of dots along the flow, seeds strokes in the densest places first, and traces each one both ways along the flow until the flow gets confused, the image turns light, or it would crowd a stroke already drawn. Each streamline is drawn as a tapered brush stroke (width from darkness, thin ends, a little pressure wobble and a dry-brush streak texture). The beard turns into combed vertical strands, the brows and eye lines connect, and the shirt gets loose hatching. Weaknesses: strokes are still fairly short (about 60 px on average), the eye bags and forehead wrinkle are only partly found, and the stroke texture makes everything a little grey.",
+  "params": {
+   "Hit": "68%",
+   "Noise": "2%",
+   "Ink": "14%",
+   "Method": "multiscale structure-tensor ETF (sigma 8 + 24), LIC density field, greedy evenly-spaced streamlines (darkest seeds first), tapered polygon strokes with flow-aligned bristle texture",
+   "Key settings": "seed density > 0.22, stop < 0.07, min coherence 0.08, spacing 6.0 px, max turn 0.35 rad/step, length 24-260 px, width 1.0-4.5 px, texture 0.35",
+   "Live in the app": "CPU at half resolution (tracing is sequential), about 2-4 per second in JS; the ETF, density and texture on GPU; strokes drawn as a WebGL triangle strip"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "004",
+  "file": "img/004.webp",
+  "title": "Calligraphic flat brush, merged strokes",
+  "notes": "Traces strokes as in 003, then fuses strokes that run close and parallel (their centre lines are splatted, blurred across and along the flow, and re-traced at wider spacing). The merged strokes are drawn in solid ink with a flat nib held at 35 degrees, so they swell on down-strokes and go hairline on the cross-strokes. Stroke ends that face each other across a small gap are joined, so the neck curve, head outline and shirt folds become long single sweeps (about 100 px average, up to 400). Clearly better than 003: fewer, longer, bolder marks with no specks. Weakness: the nib angle is fixed, so horizontal features like the brows and mouth line come out thin, and fusing loses some fine hair detail.",
+  "params": {
+   "Hit": "73%",
+   "Noise": "0%",
+   "Ink": "16%",
+   "Method": "003 streamlines -> centreline splat + blur + LIC (merge) -> second streamline pass with 6-step gap bridging -> end-to-end linking -> flat-nib ribbons",
+   "Key settings": "merge blur 3.0 px, pass-2 seed 0.3 / stop 0.08, spacing 9.0 px, max length 400 px, link ends within 16.0 px / 0.5 rad, nib 35.0 deg, width 0.9-6.5 px",
+   "Live in the app": "CPU at half resolution, 1-2 per second (two tracing passes); field passes on GPU; or keep strokes from frame to frame and re-trace a few per frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "005",
+  "file": "img/005.webp",
+  "title": "Linked fragments (skeleton + gap joining)",
+  "notes": "Thins the overlay's shapes to one-pixel skeletons, turns small dots into short dashes along the flow, then repeatedly joins ends that face each other across gaps of up to 38 px, smooths the joined chains and drops anything shorter than 18 px. The result is a sparse pen drawing: the head outline, brows, nose crease, neck curve and the shirt's sweeping folds come out as long single lines, and the shirt speckle becomes flowing lines instead of dots. Weaker than 004 overall: it misses the eyes and the woman's face in the photo, lines are thin and wiry, and thick blobs leave a few crossing spurs.",
+  "params": {
+   "Hit": "55%",
+   "Noise": "1%",
+   "Ink": "5%",
+   "Method": "binarize, drop blobs < 8 px, Zhang-Suen skeleton, cut at junctions, drop chains across the flow, dots -> flow dashes, 5 rounds of end linking, smoothing, tapered ribbons",
+   "Key settings": "link rounds ((6, 0.5), (12, 0.5), (20, 0.45), (30, 0.4), (38, 0.35)) (px, max angle rad), flow alignment >= 0.6, min length 18 px, smoothing 9 x3, width 1.2-6.0 px",
+   "Live in the app": "CPU only (skeleton + graph linking), quarter resolution about 1 per second; not a good fit for live 30 fps"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "006",
+  "file": "img/006.webp",
+  "title": "Hybrid: solid darks + calligraphic strokes",
+  "notes": "Finds the large solid darks (a blurred darkness map, opened with a 5 px disk, areas over 2500 px) and keeps them as ink fills whose edges are smeared along the flow; everything else is drawn with the 004 calligraphic strokes, which may not start inside a fill. This gives the strongest picture so far: weight in the cap of the head, the photo, the background and the shirt shadows, with clean directed strokes in the face and beard and no specks at all. Weaknesses: the woman's hair in the photo becomes one black mass, the bottom-right shirt fill is heavy with ragged white drips, and the fills are outlined by a thin white gap.",
+  "params": {
+   "Hit": "74%",
+   "Noise": "0%",
+   "Ink": "22%",
+   "Method": "fills = open(blur darkness > threshold) with flow-smeared soft edges; strokes = 004 pipeline seeded outside fills",
+   "Key settings": "fill blur 4.0 px, fill threshold 0.62, opening radius 5 px, min fill area 2500 px, edge smear 10 px; strokes as 004",
+   "Live in the app": "Fills on GPU (blur + threshold + one LIC pass, 4 passes, full rate); strokes as 004 on CPU at half resolution, 1-2 per second, cached between frames"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "007",
+  "file": "img/007.webp",
+  "title": "Hybrid, guided by flow lines",
+  "notes": "Same as 006, but the stroke tracer also follows the clean line map from 001 (blurred and added to the dot density), with slightly lower thresholds and longer allowed strokes (up to 700 px, ends joined across 22 px). Faint but coherent lines now get strokes: the right eye bag, the neck curve at lower left and the beard strands all hit Gerry's marks much better (best score so far). Weakness: it is busier than 006; the flow-line map comes in pairs, so some edges in the face get two or three parallel strokes, and the left shirt is more densely hatched.",
+  "params": {
+   "Hit": "82%",
+   "Noise": "0%",
+   "Ink": "24%",
+   "Method": "006 hybrid; stroke guide = max(dot density along flow, 0.55 x blurred 001 FDoG lines)",
+   "Key settings": "guide weight 0.55, guide blur 2.0 px, pass-1 seed/stop 0.2/0.06, pass-2 seed/stop 0.28/0.07, gap bridging 8 steps, max length 700 px, link 22.0 px; fills as 006",
+   "Live in the app": "GPU for ETF, FDoG, density and fills (about 8 passes, full rate); stroke tracing on CPU at half resolution, 1-2 per second, strokes cached and faded between updates"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "008",
+  "file": "img/008.webp",
+  "title": "003 + 25% detail",
+  "notes": "Exactly the 003 tracer and brush, with three settings loosened: seed darkness 0.22 -> 0.20 (9% lower), stop darkness 0.07 -> 0.06 (14% lower, strokes run a little further into light areas), stroke spacing 6.0 -> 5.4 px (10% tighter). Minimum length (24 px), widths, taper and texture are unchanged. Result: 1914 strokes instead of 1483 (+29%), ink 14% -> 17% (+22%), noise unchanged at 2%; more of the brows, eye lines, beard strands and photo detail survive and Hit rises from 68% to 74%. Slightly darker and busier in the shirt shadows; a shorter minimum length was tried and rejected because it doubled the specks.",
+  "params": {
+   "Hit": "74%",
+   "Noise": "2%",
+   "Ink": "17%",
+   "Method": "003 unchanged (multiscale ETF, LIC density, evenly-spaced streamlines, tapered bristle strokes) with looser seeding and spacing",
+   "Key settings": "seed > 0.2 (003: 0.22), stop < 0.06 (003: 0.07), spacing 5.4 px (003: 6.0), min length 24 px, width 1.0-4.5 px, texture 0.35 (as 003)",
+   "Live in the app": "CPU at half resolution (sequential tracing), about 2-3 per second in JS; ETF, density and texture on GPU; strokes drawn as a WebGL triangle strip"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "009",
+  "file": "img/009.webp",
+  "title": "008 + flow-line guide",
+  "notes": "Same look and settings as 008 (003 + 25% detail), but the tracer also follows the clean line map from 001 at 40% weight, so faint lines that are coherent but have few dots get strokes too. Compared with 008: the neck curve at lower left is now one long stroke, the right eye bag and beard strands are filled in, and Hit rises from 74% to 77% with noise still 2%. Weakness: the left shirt picks up more short dashes, so it is a little busier than 008.",
+  "params": {
+   "Hit": "77%",
+   "Noise": "2%",
+   "Ink": "18%",
+   "Method": "008 with stroke guide = max(dot density along flow, 0.4 x blurred 001 FDoG lines)",
+   "Key settings": "as 008 (seed 0.2, stop 0.06, spacing 5.4 px, min length 24 px) + guide weight 0.4, guide blur 2.5 px",
+   "Live in the app": "GPU for ETF, FDoG and density (about 7 passes, full rate); tracing on CPU at half resolution, about 2 per second; strokes as a WebGL triangle strip"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "010",
+  "file": "img/010.webp",
+  "title": "Engraver hatching: one global direction",
+  "notes": "Replaces 008/009's free tracing with evenly spaced streamlines (Jobard and Lefer): each line is seeded exactly 7 px from an existing one and stops when it comes within 0.6 x 7 px of another, so neighbours stay parallel and never cross. The direction is one dominant direction for the whole picture (near vertical), bent only gently by a very smooth field (sigma 60), so this is the strictest version. Tone comes only from line width, taken from 009's darkness-and-detail map; a line vanishes where the image is white. Look at the beard, neck curve and shoulders: they read well and Hit is 82% with 1% noise. Weakness: horizontal features (brows, eyes, mouth) are drawn with near-vertical lines, so the face reads less clearly than in 008; the left shirt breaks into short dashes; a few lines fan out where the field turns at the top of the head.",
+  "params": {
+   "Hit": "82%",
+   "Noise": "1%",
+   "Ink": "21%",
+   "Method": "evenly spaced streamlines (Jobard-Lefer) on a global + sigma-60 structure-tensor field; width = tone from 009 field (LIC dot density + 0.4 x FDoG lines); runs < 16 px dropped",
+   "Key settings": "field global (global weight 4.0, sigma 60.0), spacing 7.0 px, stop at 0.6 x spacing, max turn 0.25 rad/px, tone 0.06-0.65 gamma 0.8, max width 0.7 x spacing, tone smoothing 21 px, min run 16 px",
+   "Live in the app": "Lines are fixed (the field barely changes), so trace them once on the CPU and keep them as a mesh; per frame only the width is sampled from the live darkness texture in a vertex/fragment shader: GPU, 30 fps"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "011",
+  "file": "img/011.webp",
+  "title": "Engraver hatching: smooth regional flow",
+  "notes": "Same evenly spaced, never-crossing streamlines and width-only tone as 010. Two settings changed from 010: the direction field no longer has the global pull (global weight 4 -> 0) and its smoothing drops from sigma 60 to 30, so each region gets its own smooth direction; spacing is 7 -> 6 px. Lines now wrap the skull, run across the brows and eye bags, comb down the beard and sweep along the shoulders, while staying parallel to their neighbours. This is the best of the hatching set (Hit 83%, noise 2%) and the face reads much better than in 010. Weaknesses: a few fans and seams where the field turns (inside the photo, at the bottom of the shirt), and the left shirt is still broken into short dashes.",
+  "params": {
+   "Hit": "83%",
+   "Noise": "2%",
+   "Ink": "19%",
+   "Method": "evenly spaced streamlines (Jobard-Lefer) on a sigma-30 structure-tensor field, no global pull; width = tone from 009 field",
+   "Key settings": "field smooth, sigma 30.0, spacing 6.0 px, stop at 0.6 x spacing, max turn 0.25 rad/px, tone 0.06-0.65, max width 0.7 x spacing, min run 16 px",
+   "Live in the app": "Field and lines change slowly: re-trace on the CPU at half resolution about once a second, keep the lines as a mesh, and sample width from the live darkness texture on the GPU every frame (30 fps)"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "012",
+  "file": "img/012.webp",
+  "title": "Engraver hatching: fully following the flow",
+  "notes": "Same evenly spaced streamlines as 010 and 011, but the field is the local multiscale flow used by 003 (sigma 8 + 24) and spacing is the tightest, 5 px (max turn 0.25 -> 0.3 rad/px so lines can follow it). Lines hug every contour, so it reads like a contour engraving: the eyes, the woman's face in the photo and the ear come back, Hit 81%, noise 2%. Weakness: it is the least parallel of the three, since lines wiggle with local detail and bunch into contour bands, so the 'engraver's hatching' order is weaker than in 011.",
+  "params": {
+   "Hit": "81%",
+   "Noise": "2%",
+   "Ink": "20%",
+   "Method": "evenly spaced streamlines (Jobard-Lefer) on the 003 multiscale flow (sigma 8 + 24); width = tone from 009 field",
+   "Key settings": "field flow, sigma 60.0, spacing 5.0 px, stop at 0.6 x spacing, max turn 0.3 rad/px, tone 0.06-0.65, max width 0.7 x spacing, min run 16 px",
+   "Live in the app": "Tracing must follow the live flow: CPU at half resolution, about 1-2 per second; width from the live darkness texture on the GPU each frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "013",
+  "file": "img/013.webp",
+  "title": "Swirl (a): small vortices at features",
+  "notes": "011's engraver hatching (evenly spaced, never crossing, width carries tone), with a spiral flow added around 30 automatically detected dark spots: the eyes, nostrils, beard tufts, ear, the woman's eye and the photo corners (found with a Hessian blob detector, so lines are not picked up as spots). Lines now curl into small whirls at the eyes, under the nose and in the beard, and bend into the ear, while staying parallel to their neighbours; Hit 83%, noise 2%, same as 011. Swirl is controlled by: strength 1.5 (how strongly the spiral overrides the 011 flow), radius 45 px (how far each whirl reaches), pitch 25 deg (0 = closed rings, higher = open spirals), and the number of centres. Weakness: the whirls are small and a few land in odd places (photo corners, lower-left shirt).",
+  "params": {
+   "Hit": "83%",
+   "Noise": "2%",
+   "Ink": "20%",
+   "Method": "011 field + Gaussian-weighted spiral around Hessian-detected dark blobs (alternating spin), mixed as line-direction tensors; evenly spaced streamlines; width = tone",
+   "Key settings": "centres 30, swirl strength 1.5, radius 45.0 px, pitch 25.0 deg, max turn 0.35 rad/px (011: 0.25); spacing 6.0 px, field sigma 30.0",
+   "Live in the app": "Centres and field on the GPU (blob detector + vortex sum are per-pixel), tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "014",
+  "file": "img/014.webp",
+  "title": "Swirl (b): twist by darkness",
+  "notes": "011's engraver hatching with the whole direction field rotated by an angle that grows with the local darkness (smoothed over 18 px): up to 110 degrees in the darkest areas, none on white. The lines turn into marbled, wave-like bands that ripple across every change of tone: the most even, all-over swirl of this set, and it keeps lines parallel with Hit 83% and noise 2%. Swirl is controlled by: twist (degrees of rotation at full darkness; 0 = 011) and twist blur (bigger = broader, calmer bands). Weakness: the swirl ignores the forms, so the neck curve and head outline dissolve into waves and the face reads less clearly than in 011 or 013.",
+  "params": {
+   "Hit": "83%",
+   "Noise": "2%",
+   "Ink": "19%",
+   "Method": "011 field rotated by twist x smoothed darkness; evenly spaced streamlines; width = tone",
+   "Key settings": "twist 110.0 deg at full darkness, twist blur 18.0 px, max turn 0.35 rad/px (011: 0.25); spacing 6.0 px, field sigma 30.0",
+   "Live in the app": "Field on the GPU (one extra rotation per pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "015",
+  "file": "img/015.webp",
+  "title": "Swirl (c): big guilloche spirals",
+  "notes": "011's hatching blended with large ring-and-spiral systems around the 6 strongest dark spots, with a slow 1/r falloff so each spiral reaches far: lines wind like a fingerprint or banknote guilloche around the right eye, under the nose, in the photo and on the shirt. This is the strongest swirl (Hit 81%, noise 2%). Swirl is controlled by: number of centres (6), strength 2.0, reach 110 px, pitch 12 deg (lower = tighter rings) and the 1/r falloff. Weakness: the spirals go wherever the strongest spots are, not where a person would put them; one lands on a speckle in the lower-left shirt and the left eye gets none, so it can look arbitrary. The 013 detector with hand-picked centres (or a face landmark model) would fix that.",
+  "params": {
+   "Hit": "81%",
+   "Noise": "2%",
+   "Ink": "20%",
+   "Method": "011 field + spiral systems around the 6 strongest Hessian blobs with 1/r falloff (alternating spin); evenly spaced streamlines; width = tone",
+   "Key settings": "centres 6, strength 2.0, reach 110.0 px (1/r falloff), pitch 12.0 deg, max turn 0.4 rad/px (011: 0.25); spacing 6.0 px",
+   "Live in the app": "Field on the GPU (6 spiral terms per pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "016",
+  "file": "img/016.webp",
+  "title": "Swirl (d): eddies + feature whirls",
+  "notes": "013's whirls at the detected features, made bigger (reach 45 -> 65 px), plus a large-scale curl-noise term that slowly rotates the 011 flow by up to 55 degrees in broad eddies, and more allowed curvature (max turn 0.35 -> 0.5 rad/px) so lines can curl tightly. The whole picture now flows: the beard and shoulders sweep in slow S-curves, the eyes, nostril, ear and beard tufts each sit in a whirl, and neighbouring lines stay parallel (Hit 83%, noise 2%). Between 013 (gentle) and 015 (strongest) in swirl amount, and to my eye the most beautiful of the swirl set. Swirl is controlled by: curl (degrees of eddy rotation; 0 = none), curl scale (eddy size, 90 px), and the vortex strength, reach and pitch as in 013. Weakness: the eddies are random, not tied to the face, so a few whirls sit in empty shirt; the photo corners still get little curls.",
+  "params": {
+   "Hit": "83%",
+   "Noise": "2%",
+   "Ink": "20%",
+   "Method": "011 field + large-scale curl-noise rotation + spiral around Hessian-detected dark blobs; evenly spaced streamlines; width = tone",
+   "Key settings": "curl 55.0 deg, curl scale 90.0 px, centres 30, vortex strength 1.5, reach 65.0 px, pitch 25.0 deg, max turn 0.5 rad/px; spacing 6.0 px, field sigma 30.0",
+   "Live in the app": "Field on the GPU (noise texture + blob detector + vortex sum, per pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "017",
+  "file": "img/017.webp",
+  "title": "Zones A: rays at the eyes, rings on the skull",
+  "notes": "The direction field is now assembled from zones laid out automatically from the two eyes and the nostril (found by the blob detector; eye distance d = 205 px sets every zone's size), each with its own pattern, feathered over about 45 px and stacked so lines bend from one pattern into the next. Zone -> pattern: wall (white areas) -> vertical straight; shirt (below 1.25 d under the eyes) -> 45 deg curved sweep (rays from below the nose, turned 18 deg); skull (ellipse above the eyes) -> concentric rings; photo (above the head) -> 016 whirls; beard (ellipse below the nose) -> vertical straight; face band (brows to nose) -> flow-following as 011; nose -> radial rays; each eye -> radial rays. Look at the sunbursts at the eyes and nostril, the straight combed beard and the diagonal shirt sweeps. Hit 84%, noise 3%. Weaknesses: the skull rings hardly show because the skull is white (tone carries ink only where it is dark), the zone ellipses are crude so the beard's straight lines stop short of the jaw, and the eye rays look a little mechanical. The next entry (017z) shows the zone map.",
+  "params": {
+   "Hit": "84%",
+   "Noise": "3%",
+   "Ink": "20%",
+   "Method": "zone masks from detected eyes + nose; per-zone pattern angle fields composited over the 011 flow (doubled-angle mixing); evenly spaced streamlines; width = tone",
+   "Key settings": "zone feather 45.0 px (eyes/nose 0.6x), eye zones 0.4 d x 0.3 d, nose 0.28 d, beard ellipse 1.05 d x 0.8 d at 1.6 d below eyes, skull ellipse 1.3 d x 1.35 d, shirt below 1.25 d, sweep twist 18 deg; spacing 6.0 px, max turn 0.4 rad/px, base field sigma 30.0",
+   "Live in the app": "Zones and field on the GPU (eye/nose positions from the blob detector, all masks are per-pixel formulas); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "017z",
+  "file": "img/017z.webp",
+  "title": "Zone map for 017 (diagnostic)",
+  "notes": "Not a drawing: the zones used by 017 in colour, each labelled with its pattern, with short ticks showing the final line direction on a 24 px grid and red dots at the detected eyes and nostril. The colour shows which zone has the largest share at each pixel; borders are actually soft (about 45 px), which is why the ticks turn gradually.",
+  "params": {
+   "Hit": "n/a",
+   "Noise": "n/a",
+   "Ink": "n/a",
+   "Method": "diagnostic of the 017 field",
+   "Key settings": "as 017",
+   "Live in the app": "debug view only"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "018",
+  "file": "img/018.webp",
+  "title": "Zones B: ripples at the eyes, curling beard",
+  "notes": "A second zone assignment on the same automatic layout (eyes, nostril, eye distance d). Zone -> pattern: shirt -> vertical straight; left and right shoulders -> 45 deg curved sweeps (mirrored, steepening 15 deg toward the outside); skull -> open spiral (pitch 30 deg) around the crown; photo -> vertical straight; beard -> spiral curl (pitch 40 deg) around the chin; face band -> flow-following (011); each eye -> concentric rings. The eyes become ripple targets, the beard curls in one big whirl, and the shirt and photo turn into straight vertical engraving, so the picture has clear contrasts of pattern. Hit 83%, noise 2%. Weaknesses: the ring eyes look a little staring and mechanical, the shirt's vertical lines break into dashes over the speckled areas, and there are small seams (short cross-hatches) where the photo meets the skull.",
+  "params": {
+   "Hit": "83%",
+   "Noise": "2%",
+   "Ink": "19%",
+   "Method": "zone masks from detected eyes + nose; per-zone pattern fields composited over the 011 flow; evenly spaced streamlines; width = tone",
+   "Key settings": "zone feather 45.0 px (eyes/nose 0.6x, shoulders/shirt 2x); sizes in eye distances d = 205 px; spacing 6.0 px, max turn 0.4 rad/px, base field sigma 30.0",
+   "Live in the app": "Zones and field on the GPU (per-pixel masks and patterns); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "018z",
+  "file": "img/018z.webp",
+  "title": "Zone map for 018 (diagnostic)",
+  "notes": "Not a drawing: the zones used by 018 in colour, labelled with their patterns, with ticks showing the final line direction every 24 px and red dots at the detected eyes and nostril. Borders are soft in the real field.",
+  "params": {
+   "Hit": "n/a",
+   "Noise": "n/a",
+   "Ink": "n/a",
+   "Method": "diagnostic of the 018 field",
+   "Key settings": "as 018",
+   "Live in the app": "debug view only"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "019",
+  "file": "img/019.webp",
+  "title": "Zones C: halo of rays, sunburst eyes",
+  "notes": "A third assignment: everything outside the man (wall, photo, lower shirt) radiates from the centre of the face like a halo; left and right shoulders -> 45 deg curved sweeps; skull and face band -> flow-following (011); beard -> vertical straight; nostril and each eye -> radial rays (sunbursts). It has the best Hit of all versions (85%, noise 3%), and the eyes and nose read as small starbursts in a straight-combed beard. Weaknesses: the halo only shows where there is tone, so on the white wall it is invisible and in the photo it reads as fanned diagonal lines; the zone borders leave visible seams on the left of the head and at the photo's lower edge.",
+  "params": {
+   "Hit": "85%",
+   "Noise": "3%",
+   "Ink": "21%",
+   "Method": "zone masks from detected eyes + nose; per-zone pattern fields composited over the 011 flow; evenly spaced streamlines; width = tone",
+   "Key settings": "zone feather 45.0 px (eyes/nose 0.6x, shoulders/shirt 2x); sizes in eye distances d = 205 px; spacing 6.0 px, max turn 0.4 rad/px, base field sigma 30.0",
+   "Live in the app": "Zones and field on the GPU (per-pixel masks and patterns); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "019z",
+  "file": "img/019z.webp",
+  "title": "Zone map for 019 (diagnostic)",
+  "notes": "Not a drawing: the zones used by 019 in colour, labelled with their patterns, with ticks showing the final line direction every 24 px and red dots at the detected eyes and nostril. Borders are soft in the real field.",
+  "params": {
+   "Hit": "n/a",
+   "Noise": "n/a",
+   "Ink": "n/a",
+   "Method": "diagnostic of the 019 field",
+   "Key settings": "as 019",
+   "Live in the app": "debug view only"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "020",
+  "file": "img/020.webp",
+  "title": "Like 016, but swirl only where it belongs",
+  "notes": "016 with three clean-ups. Eddies only where the picture has tone: the curl-noise rotation is multiplied by a soft mask of darkness blurred over 30 px, so white areas and the empty shirt stay calm. Spirals only on real features: centres must be within 3.2 eye-distances of the eyes and not more than 1.3 eye-distances above them, which drops the photo corners and the shirt speckle and keeps eyes, nostril, ear and beard tufts. Fewer dashes: width smoothing along each line 21 -> 31 px and minimum ink run 16 -> 24 px. All swirl amounts are unchanged from 016. Compared with 016: the photo corners and the lower-left shirt no longer have whirls, the shirt shows longer, calmer lines with fewer dashes, and noise drops from 2% to 1% (Hit 84%). Weakness: the eddies still cover the whole shirt (it all has some tone), and two leftover spirals sit on the background edge at far left and on the right shoulder edge.",
+  "params": {
+   "Hit": "84%",
+   "Noise": "1%",
+   "Ink": "20%",
+   "Method": "016 (011 engraver streamlines + feature spirals + curl-noise eddies), see changes",
+   "Changes from 016": "tone_win 21 -> 31, minrun 16 -> 24, eddies only where there is tone: off -> on, spirals only on features near the face: off -> on",
+   "Key settings": "curl 55.0 deg, eddy size 90.0 px, eddies masked to tone True, spirals: 30 max, strength 1.5, reach 65.0 px, pitch 25.0 deg, eye rays 0.0 d; max turn 0.5, spacing 6.0 px, width smoothing 31 px, min ink run 24 px",
+   "Live in the app": "Field on the GPU (noise texture, tone mask, blob detector and spiral sum are per-pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "021",
+  "file": "img/021.webp",
+  "title": "Like 020, with stronger swirl",
+  "notes": "020 with the swirl turned up: spiral reach 65 -> 90 px and eddy rotation 55 -> 80 degrees (everything else as 020, including the clean-ups). The whirls at the eyes, nostril, ear and beard tufts are larger and the beard and shoulders twist harder, while neighbouring lines stay parallel. Result: Hit 84%, noise 1%. The swirl is clearly more visible than in 016/020, especially the curls in the beard and around the eyes; the face still reads. Weakness: the bigger whirls start to compete with the features (the right eye sits inside a strong curl) and the shirt eddies get busier.",
+  "params": {
+   "Hit": "84%",
+   "Noise": "1%",
+   "Ink": "20%",
+   "Method": "016 (011 engraver streamlines + feature spirals + curl-noise eddies), see changes",
+   "Changes from 016": "curl 55.0 -> 80.0, radius 65.0 -> 90.0, tone_win 21 -> 31, minrun 16 -> 24, eddies only where there is tone: off -> on, spirals only on features near the face: off -> on",
+   "Key settings": "curl 80.0 deg, eddy size 90.0 px, eddies masked to tone True, spirals: 30 max, strength 1.5, reach 90.0 px, pitch 25.0 deg, eye rays 0.0 d; max turn 0.5, spacing 6.0 px, width smoothing 31 px, min ink run 24 px",
+   "Live in the app": "Field on the GPU (noise texture, tone mask, blob detector and spiral sum are per-pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "022",
+  "file": "img/022.webp",
+  "title": "Like 020, with fewer, bigger, slower eddies",
+  "notes": "A gentler 020: eddy size 90 -> 140 px (fewer, bigger, slower eddies), eddy rotation 55 -> 60 degrees, and only the 14 strongest feature spirals (was up to 30) at strength 1.1 (was 1.5); clean-ups as 020. The aim is for the whole picture to read as long flowing S-curves with a few calm whirls. Result: Hit 85%, noise 1% (best Hit with the lowest noise so far). It is the calmest of the 016 family: long sweeping lines, the beard combed in broad S-curves, whirls only at the main features. Weakness: less swirl overall than 016, so if Gerry wants visible spirals this may feel too tame.",
+  "params": {
+   "Hit": "85%",
+   "Noise": "1%",
+   "Ink": "20%",
+   "Method": "016 (011 engraver streamlines + feature spirals + curl-noise eddies), see changes",
+   "Changes from 016": "curl 55.0 -> 60.0, curl_scale 90.0 -> 140.0, strength 1.5 -> 1.1, n_centres 30 -> 14, tone_win 21 -> 31, minrun 16 -> 24, eddies only where there is tone: off -> on, spirals only on features near the face: off -> on",
+   "Key settings": "curl 60.0 deg, eddy size 140.0 px, eddies masked to tone True, spirals: 14 max, strength 1.1, reach 65.0 px, pitch 25.0 deg, eye rays 0.0 d; max turn 0.5, spacing 6.0 px, width smoothing 31 px, min ink run 24 px",
+   "Live in the app": "Field on the GPU (noise texture, tone mask, blob detector and spiral sum are per-pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "023",
+  "file": "img/023.webp",
+  "title": "Like 020, with small sunbursts at the eyes",
+  "notes": "020 plus the best idea from the zoned versions: short radial rays right around each eye centre (an ellipse of 0.25 x 0.2 eye-distances, about 50 x 40 px, feathered 14 px) that blend outward into 016's swirl; everything else as 020. Result: Hit 84%, noise 1%. The eyes get small starbursts that feed into the surrounding swirl, which gives them focus. Weakness: the ray centres are a little mechanical (fine radiating spokes) and the left eye rays are faint because that area is light.",
+  "params": {
+   "Hit": "84%",
+   "Noise": "1%",
+   "Ink": "20%",
+   "Method": "016 (011 engraver streamlines + feature spirals + curl-noise eddies), see changes",
+   "Changes from 016": "tone_win 21 -> 31, minrun 16 -> 24, eddies only where there is tone: off -> on, spirals only on features near the face: off -> on, eye rays off -> 0.2 eye-distances",
+   "Key settings": "curl 55.0 deg, eddy size 90.0 px, eddies masked to tone True, spirals: 30 max, strength 1.5, reach 65.0 px, pitch 25.0 deg, eye rays 0.2 d; max turn 0.5, spacing 6.0 px, width smoothing 31 px, min ink run 24 px",
+   "Live in the app": "Field on the GPU (noise texture, tone mask, blob detector and spiral sum are per-pixel); tracing on the CPU at half resolution about once a second; width from the live darkness texture every frame"
+  },
+  "inApp": ""
+ }
+]

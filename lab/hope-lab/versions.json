@@ -1,0 +1,92 @@
+[
+ {
+  "id": "001",
+  "file": "img/001.webp",
+  "title": "Baseline: the app today",
+  "notes": "The current app Hope reproduced in the lab for reference: Depth Anything lit by a lamp at 135 deg, 35% photo mixed in, auto levels, 5 levels. On Franklin the lamp happens to agree with the photo light, but the zones are blotchy and wander; on the drawn face the depth model invents a 3D head and lights it, so the map is the opposite of the picture (negative fidelity).",
+  "params": {
+   "Tones": "5",
+   "Noise": "A 1.4% / B 0.7%",
+   "Fidelity": "A 0.89 / B -0.34",
+   "Method": "depth normals x lamp + 0.35 photo, 2-98% auto levels, floor(v*5)",
+   "Key settings": "180x320, blur r=1 x2, relief 6, light 135/35",
+   "Live in the app": "this is what runs now"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "002",
+  "file": "img/002.webp",
+  "title": "Photo, edge-preserving posterize",
+  "notes": "No depth at all: the photo brightness is blurred just enough to erase the engraving (sigma 3), then flattened with a rolling guided filter that keeps the big edges, cut at 4 even levels, small islands merged away and contours rounded. Big confident shapes and it follows the real light; the eyes survive as dark blobs but the lids and lower lip are lost into the mid-tones.",
+  "params": {
+   "Tones": "4",
+   "Noise": "A 0% / B 0%",
+   "Fidelity": "A 0.96 / B 0.97",
+   "Method": "gauss 3 -> guided filter x4 (rolling) -> 1-99% levels -> thresholds .25/.5/.75 -> merge regions <0.2% -> contour smooth (indicator blur 4, argmax)",
+   "Key settings": "guided r=14 eps=0.004, 540x960",
+   "Live in the app": "guided filter = 4 box-filter passes on the 180x320 tone map (CPU, ~2 ms) or in a shader; posterize + AA edges in the existing shader"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "003",
+  "file": "img/003.webp",
+  "title": "Same, thresholds from k-means",
+  "notes": "Same smoothing as 002, but the 3 cuts are found per image by 1D k-means on the smoothed brightness, so they sit on the real light/shadow split instead of fixed steps. On Franklin the shadow side of the face grows into one bolder dark mass and the cheek light reads better; the drawn face barely changes. Scores are the same as 002: the gain is in the look, not the numbers.",
+  "params": {
+   "Tones": "4",
+   "Noise": "A 0% / B 0%",
+   "Fidelity": "A 0.96 / B 0.97",
+   "Method": "002 smoothing -> 1D k-means (4 centres, Lloyd, 256-bin histogram) -> cuts at midpoints between centres",
+   "Key settings": "cuts found: A .38/.58/.75, B .33/.46/.61",
+   "Live in the app": "k-means on a 256-bin histogram of the 180x320 map is ~0.1 ms on CPU; ease the cuts over time (like the current auto levels) so they do not jump"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "004",
+  "file": "img/004.webp",
+  "title": "Relit depth, light fitted to the photo",
+  "notes": "The depth map is snapped to the photo edges with a guided filter, and the lamp direction and relief are not set by hand but fitted so the shading best explains the smoothed photo; the lamp is then blended in by how much it explains (R squared). On Franklin this gives the most Hope-like masses so far (lit nose and cheek, one dark shadow side), but the left eye drowns in the brow. On the drawn face the fit is weak and points the light from below, so it invents a lit half-face and loses the eyes and mouth.",
+  "params": {
+   "Tones": "4",
+   "Noise": "A 0% / B 0%",
+   "Fidelity": "A 0.88 / B 0.92",
+   "Method": "depth (DA v2 small, 308x546) -> gauss 2 -> guided by smoothed photo x3 -> normals -> least-squares light fit over relief {50..1600} -> shade blended w=min(R2,0.6) with 002 map -> k-means 4",
+   "Key settings": "fit: A R2 .61 relief 800 light az 129 el 44; B R2 .45 az -58 el -32 (nonsense)",
+   "Live in the app": "normals + dot in the shader from the 180x320 depth; the light fit is a 4x4 least squares on a subsampled grid (CPU, <1 ms), refreshed twice a second"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "005",
+  "file": "img/005.webp",
+  "title": "Superpixel blocks",
+  "notes": "SLIC superpixels on the lightly smoothed brightness, each filled with its mean tone, then cut into 4 tones with k-means. Very flat, but no better than 003: superpixels of 20 px are too coarse for the drawn eyes (both vanish) and leave staircase steps along long soft gradients, while the Franklin result is close to 003 with lumpier edges. Not worth the extra cost.",
+  "params": {
+   "Tones": "4",
+   "Noise": "A 0% / B 0%",
+   "Fidelity": "A 0.95 / B 0.96",
+   "Method": "gauss 2 -> guided x2 -> SLIC at 270x480 (size 20, compactness .08, 8 iters) -> region means -> k-means 4 -> merge <0.2% -> contour smooth 5",
+   "Key settings": "SLIC S=20 m=0.08",
+   "Live in the app": "SLIC is iterative and awkward on GPU; would need a CPU worker at ~10 fps. Not recommended"
+  },
+  "inApp": ""
+ },
+ {
+  "id": "006",
+  "file": "img/006.webp",
+  "title": "Two-scale: masses + feature lines",
+  "notes": "The 003 masses, plus a thin layer of dark features found by a difference of blurs (spots clearly darker than their surroundings), rounded and stripped of specks, then merged into the black zone. The drawn face gets its eyes and mouth back, and Franklin gains the lower lid, nostril wing and mouth line. The noise score rises only because the eyes themselves are smaller than 0.2% of the frame; there are a few short stray strokes left on Franklin under the eye.",
+  "params": {
+   "Tones": "4",
+   "Noise": "A 0.6% / B 1.0% (the eyes count as small)",
+   "Fidelity": "A 0.94 / B 0.96",
+   "Method": "003 masses; features = gauss(L,3) - gauss(L,12) < -0.075 on 1-99% normalised L, mask blurred 2 and re-cut at .5, blobs < 450 px dropped, set to black",
+   "Key settings": "DoG 3/12, threshold 0.075, min feature 450 px (0.09%)",
+   "Live in the app": "two mip levels of the camera texture give the difference of blurs in the shader for free; the masses map from 003 on the CPU at 180x320"
+  },
+  "inApp": ""
+ }
+]

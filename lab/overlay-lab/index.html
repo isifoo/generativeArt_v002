@@ -1,0 +1,95 @@
+<title>Overlay Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a darkroom contact sheet. Input pinned at the top, versions stack below newest first, each print large with its recipe. */
+:root {
+  --paper: #f3f2ee; --card: #ffffff; --ink: #141413; --dim: #6b6a64; --rule: #dcdad3; --accent: #c2410c; --mark: #d9a400;
+  --display: "Fraunces", Georgia, serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --paper: #121211; --card: #1b1b19; --ink: #ecebe6; --dim: #9a988f; --rule: #2e2d29; --accent: #f08a4b; --mark: #e8bd2a; color-scheme: dark } }
+:root[data-theme="dark"] { --paper: #121211; --card: #1b1b19; --ink: #ecebe6; --dim: #9a988f; --rule: #2e2d29; --accent: #f08a4b; --mark: #e8bd2a; color-scheme: dark }
+body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--body); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 64px; }
+.wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 36px; }
+header { display: grid; gap: 10px; }
+h1 { font: 700 clamp(30px, 5vw, 48px)/1.05 var(--display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+.lede { color: var(--dim); max-width: 64ch; margin: 0; }
+.label { font: 500 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+figure { margin: 0; display: grid; gap: 8px; min-width: 0; }
+figure img { width: 100%; aspect-ratio: 954 / 1666; object-fit: cover; background: #fff; border: 1px solid var(--rule); display: block; cursor: zoom-in; }
+figcaption { font: 12px/1.4 var(--mono); color: var(--dim); }
+.versions { display: grid; gap: 28px; }
+.v { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 22px; padding: 18px; background: var(--card); border: 1px solid var(--rule); }
+@media (max-width: 720px) { .v { grid-template-columns: 1fr; } }
+.v h2 { font: 600 26px/1.1 var(--display); margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.v h2 .n { font-family: var(--mono); font-size: 14px; color: var(--accent); letter-spacing: .06em; }
+.v .meta { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.v p { margin: 0; max-width: 62ch; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font: 13px/1.5 var(--mono); }
+dt { color: var(--dim); } dd { margin: 0; overflow-wrap: anywhere; }
+.chip { display: inline-block; font: 500 11px/1 var(--mono); padding: 5px 8px; border: 1px solid var(--rule); color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.chip.app { color: var(--accent); border-color: var(--accent); }
+.empty { padding: 28px; border: 1px dashed var(--rule); color: var(--dim); text-align: center; }
+.compare { display: flex; gap: 8px; flex-wrap: wrap; }
+.compare button { font: 500 12px/1 var(--mono); padding: 7px 10px; background: transparent; color: var(--ink); border: 1px solid var(--rule); cursor: pointer; }
+.compare button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.compare button:focus-visible, figure img:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+dialog { border: 0; padding: 0; background: transparent; max-width: 96vw; max-height: 96vh; }
+dialog::backdrop { background: rgba(0,0,0,.85); }
+dialog img { max-width: 96vw; max-height: 92vh; display: block; background: #fff; }
+dialog p { color: #eee; font: 13px/1.4 var(--mono); margin: 8px 0 0; text-align: center; }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="label">Generative Art v002 · Overlay</span>
+    <h1>Overlay Lab</h1>
+    <p class="lede">Versions of the face-features overlay that turn its dots and fragments into long, directed brush strokes. Each version is added here as it is made; the input stays pinned at the top for comparison. Tap any image to see it large.</p>
+  </header>
+
+  <section class="pair" aria-label="Input">
+    <figure><img id="in-marked" src="img/000-marked.webp" alt="Current overlay with Gerry's yellow marks showing where strokes should connect" tabindex="0"><figcaption>Overlay 000 · current, with your yellow marks (where strokes should run)</figcaption></figure>
+    <figure><img id="in-clean" src="img/000-input.webp" alt="Current overlay, marks removed: the input every version starts from" tabindex="0"><figcaption>Overlay 000 · the input every version starts from</figcaption></figure>
+  </section>
+
+  <section class="versions" id="versions" aria-label="Versions">
+    <div class="empty" id="empty">Overlay 001 is being made. Versions appear here, newest first.</div>
+  </section>
+</div>
+
+<dialog id="big"><img id="bigimg" alt=""><p id="bigcap"></p></dialog>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const big = $('#big');
+function show(src, cap) { $('#bigimg').src = src; $('#bigimg').alt = cap; $('#bigcap').textContent = cap; try { big.showModal(); } catch { big.setAttribute('open', ''); } }
+big.addEventListener('click', () => big.close());
+for (const id of ['in-marked', 'in-clean']) { const im = $('#' + id); const go = () => show(im.src, im.nextElementSibling.textContent); im.onclick = go; im.onkeydown = (e) => { if (e.key === 'Enter') go(); }; }
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function card(v) {
+  const el = document.createElement('article'); el.className = 'v';
+  const params = Object.entries(v.params || {}).map(([k, val]) => `<dt>${esc(k)}</dt><dd>${esc(val)}</dd>`).join('');
+  el.innerHTML = `<figure><img src="${esc(v.file)}" alt="Overlay ${esc(v.id)}: ${esc(v.title)}" tabindex="0"><figcaption>Overlay ${esc(v.id)}</figcaption></figure>
+    <div class="meta">
+      <h2><span class="n">Overlay ${esc(v.id)}</span>${esc(v.title)}</h2>
+      <div class="compare" role="group" aria-label="Compare">
+        <button type="button" aria-pressed="true" data-src="${esc(v.file)}">This version</button>
+        <button type="button" aria-pressed="false" data-src="img/000-marked.webp">Input + marks</button>
+      </div>
+      <p>${esc(v.notes)}</p>
+      ${params ? `<dl>${params}</dl>` : ''}
+      <div>${v.inApp ? `<span class="chip app">In the app: ${esc(v.inApp)}</span>` : '<span class="chip">Lab only</span>'}</div>
+    </div>`;
+  const img = el.querySelector('img');
+  img.onclick = () => show(img.src, 'Overlay ' + v.id + ' · ' + v.title);
+  img.onkeydown = (e) => { if (e.key === 'Enter') img.onclick(); };
+  for (const b of el.querySelectorAll('.compare button')) b.onclick = () => { for (const o of el.querySelectorAll('.compare button')) o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); img.src = b.dataset.src; };
+  return el;
+}
+fetch('versions.json', { cache: 'no-store' }).then((r) => r.json()).then((list) => {
+  if (!Array.isArray(list) || !list.length) return;
+  $('#empty').remove();
+  for (const v of [...list].reverse()) $('#versions').append(card(v));
+}).catch(() => {});
+</script>

@@ -1,0 +1,12 @@
+const { chromium } = require('playwright'); const http = require('http'), fs = require('fs'), path = require('path');
+const SP = process.argv[2], ROOT = '/home/user/generativeart_v002';
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.wasm': 'application/wasm' };
+const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split('?')[0]); if (p === '/') p = '/index.html'; const f = path.join(ROOT, p);
+  if (!fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); }).listen(8851);
+(async () => { const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1600, height: 1000 } }); pg.setDefaultTimeout(120000); const errs = []; pg.on('pageerror', (e) => errs.push(e.message));
+  await pg.goto('http://localhost:8851/?view=flines&nocam'); await pg.waitForSelector('.addlvl', { state: 'attached' }); await pg.waitForTimeout(800);
+  await pg.evaluate(() => { if (!document.body.classList.contains('editing')) document.getElementById('setbtn').click(); document.querySelector('.node[data-grp="Level01 Alpha"]').click(); });
+  await pg.waitForTimeout(800);
+  console.log('Level01 buttons on:', await pg.evaluate(() => [...document.querySelectorAll('.chanrow:not(.halfrow)')][0].querySelectorAll('button.on')).then ? '' : '', await pg.evaluate(() => [...[...document.querySelectorAll('.chanrow:not(.halfrow)')][0].querySelectorAll('button.on')].map((x) => x.textContent).join(',')), '| stored:', await pg.evaluate(() => document.getElementById('l1ch').value));
+  await pg.locator('.chanrow:not(.halfrow)').first().screenshot({ path: SP + '/labels.png' });
+  console.log('errors:', errs.join('|') || 'none'); await b.close(); srv.close(); })();

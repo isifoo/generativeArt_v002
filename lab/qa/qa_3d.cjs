@@ -1,0 +1,31 @@
+const { chromium } = require('playwright');
+const http = require('http'), fs = require('fs'), path = require('path');
+const ROOT = '/home/user/generativeart_v002', OUT = process.argv[2];
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.mp4': 'video/mp4', '.wasm': 'application/wasm', '.css': 'text/css' };
+const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split('?')[0]); if (p === '/') p = '/index.html';
+  const f = /\.mp4$/.test(p) ? '/tmp/clip' + p : path.join(ROOT, p); if (!fs.existsSync(f)) { r.writeHead(404); return r.end(); }
+  r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); if (q.method === 'HEAD') return r.end(); fs.createReadStream(f).pipe(r); }).listen(8772);
+const shot = async (pg, name) => { const png = await pg.evaluate(() => document.querySelector('#cv').toDataURL('image/png')); fs.writeFileSync(OUT + '/' + name, Buffer.from(png.split(',')[1], 'base64')); };
+(async () => {
+  const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'], proxy: { server: process.env.HTTPS_PROXY, bypass: 'localhost,127.0.0.1' } });
+  const ctx = await b.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 } }); const pg = await ctx.newPage();
+  const errs = []; pg.on('pageerror', (e) => errs.push(e.message)); pg.on('console', (m) => { if (m.type() === 'error' && !/404|onnxruntime|MIME/.test(m.text())) errs.push(m.text().slice(0, 150)); });
+  await pg.goto('http://localhost:8772/?view=depth3d&nocam'); await pg.waitForSelector('#d3z', { state: 'attached', timeout: 60000 });
+  await pg.evaluate(() => { const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }; set('d3a', 0);
+    const v = document.querySelector('#vid'); v.src = 'scene.mp4'; v.loop = true; v.play(); });
+  await pg.waitForFunction(() => window.__state && window.__state.M.have, null, { timeout: 180000 });
+  await pg.evaluate(() => document.querySelector('#vid').pause()); await pg.waitForTimeout(6000);
+  const look = (v) => pg.evaluate((v) => { const s = document.querySelector('#d3look'); s.value = v; s.dispatchEvent(new Event('change')); }, v);
+  const set = (id, v) => pg.evaluate(([id, v]) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, [id, v]);
+  const off = (id) => pg.evaluate((id) => document.getElementById(id).parentElement.querySelector('.onoff input').click(), id);
+  await shot(pg, '3d_video.png');
+  await look('clay'); await pg.waitForTimeout(500); await shot(pg, '3d_clay.png');
+  await off('d3k'); await pg.waitForTimeout(500); await shot(pg, '3d_clay_cut.png'); await off('d3k');
+  await look('palette'); await pg.waitForTimeout(500); await shot(pg, '3d_palette.png');
+  await look('clay'); await set('d3y', -40); await set('d3p', 25); await pg.waitForTimeout(500); await shot(pg, '3d_clay_angle.png');
+  console.log('stats:', (await pg.textContent('#stats')).replace(/\s+/g, ' '));
+  console.log('mesh update ms:', await pg.evaluate(() => window.__state.meshMs.toFixed(1)));
+  console.log('frame time ms (mesh update + render):', await pg.evaluate(async () => { const t = []; let last = performance.now(); for (let i = 0; i < 30; i++) { await new Promise((r) => requestAnimationFrame(r)); const n = performance.now(); t.push(n - last); last = n; } t.sort((a, b) => a - b); return t[15].toFixed(1); }));
+  console.log('errors:', errs.join(' | ') || 'none');
+  await b.close(); srv.close();
+})();

@@ -1,0 +1,31 @@
+const { chromium, devices } = require('playwright');
+const http = require('http'), fs = require('fs'), path = require('path');
+const ROOT = '/home/user/generativeart_v002';
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
+const srv = http.createServer((q, r) => { let p = decodeURIComponent(q.url.split('?')[0]); if (p === '/') p = '/index.html';
+  const f = path.join(ROOT, p); if (!fs.existsSync(f)) { r.writeHead(404); return r.end(); }
+  r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); }).listen(8770);
+(async () => {
+  const b = await chromium.launch(); const ctx = await b.newContext({ ...devices['iPhone 13'] }); const pg = await ctx.newPage();
+  const errs = []; pg.on('pageerror', (e) => errs.push(e.message));
+  await pg.goto('http://localhost:8770/?view=flines&nocam'); await pg.waitForSelector('#flsp', { state: 'attached' });
+  const vals = await pg.evaluate(() => Object.fromEntries(['flsp', 'flam', 'flsc'].map((k) => [k, document.getElementById(k).value])));
+  console.log('Dollar defaults:', JSON.stringify(vals));
+  await pg.click('#setbtn'); await pg.waitForTimeout(700);
+  const vis = (s) => pg.isVisible(s);
+  console.log('owner button visible:', await vis('#ownerbtn'), '| save row visible:', await vis('#ownerrow'));
+  await pg.click('#ownerbtn'); await pg.fill('#pinbox2 input', '4321'); await pg.waitForTimeout(200);
+  console.log('wrong PIN -> save row visible:', await vis('#ownerrow'));
+  await pg.fill('#pinbox2 input', process.env.OWNER_PIN || ''); await pg.waitForTimeout(200);
+  console.log('PIN -> save row visible:', await vis('#ownerrow'), '| owner button hidden:', !(await vis('#ownerbtn')));
+  await pg.evaluate(() => { const el = document.getElementById('flsp'); el.value = 20; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await pg.click('#setdef'); await pg.waitForTimeout(300);
+  await pg.reload(); await pg.waitForSelector('#flsp', { state: 'attached' }); await pg.waitForTimeout(800);
+  console.log('after Set default + reload: line spacing =', await pg.evaluate(() => document.getElementById('flsp').value), '| still owner:', await pg.evaluate(() => !document.getElementById('ownerrow').hidden));
+  await pg.click('#resetdef'); await pg.waitForTimeout(1500); await pg.waitForSelector('#flsp', { state: 'attached' });
+  console.log('after Reset defaults: line spacing =', await pg.evaluate(() => document.getElementById('flsp').value));
+  await pg.click('#lockbtn'); await pg.waitForTimeout(200);
+  console.log('after Lock -> save row visible:', await vis('#ownerrow'), '| owner button visible:', await vis('#ownerbtn'));
+  console.log('errors:', errs.join(' | ') || 'none');
+  await b.close(); srv.close();
+})();
