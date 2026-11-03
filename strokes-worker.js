@@ -5,12 +5,18 @@
 'use strict';
 const W = 540, H = 960, FW = 270, FH = 480;
 const DET = { size: 30, contrast: 40, thr: 0.3, soft: 0.45, blacks: 0.18 };           // the detector settings Motion 007 was made with
-const DENSE = typeof self !== 'undefined' && self.location && /look=dense/.test(self.location.search || '');   // ?look=dense = the original busy look (Motion 007)
+const LOOK = typeof self !== 'undefined' && self.location && (/look=(\w+)/.exec(self.location.search || '') || [])[1] || 'hatch';   // ?look=dense (Motion 007) | clean | hatch (default, engraving)
+const DENSE = LOOK === 'dense';
 const PAR = DENSE
   ? { dsep: 3, dtest: 1.8, step: 0.5, cosTurn: Math.cos(0.5), minLen: 20, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 2.1, wMin: 0.3, win: 21, minRun: 16, sub: 2,
       nCentres: 30, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 55 * Math.PI / 180, tens: 3.75, dirSm: 0.75 }
-  : { dsep: 4.5, dtest: 3.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 40, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 3.0, wMin: 0.6, win: 21, minRun: 16, sub: 2,   // clean: even, wide spacing, smooth field
-      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 6 * Math.PI / 180, tens: 7, dirSm: 3 };
+  : LOOK === 'clean'
+  ? { dsep: 4.5, dtest: 3.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 40, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 3.0, wMin: 0.6, win: 21, minRun: 16, sub: 2,
+      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 6 * Math.PI / 180, tens: 7, dirSm: 3 }
+  : { dsep: 3.2, dtest: 2.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 30, tLo: 0.04, tHi: 0.8, gamma: 0.9, wMax: 1.75, wMin: 0.28, win: 9, minRun: 6, sub: 2,   // hatch: engraving, tone sets the line weight, crossing layers in the dark
+      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 5 * Math.PI / 180, tens: 5, dirSm: 2 };
+const HATCH = LOOK === 'hatch';
+const LAYERS = [{ rot: 0, lo: 0, ds: 1 }, { rot: 58, lo: 0.42, ds: 1.5 }, { rot: -58, lo: 0.68, ds: 1.5 }];   // each crossing layer only where it is darker than lo
 
 // ---------------------------------------------------------------- blurs (true kernel when small, three box passes when large)
 function boxPass(a, w, h, r, horiz) {
@@ -166,8 +172,8 @@ function makeField(I2 /* ink-free picture at half resolution, 1 = paper */) {
 }
 
 // ---------------------------------------------------------------- evenly spaced streamlines (Jobard-Lefer), seeds tried first
-function streamlines(C, S, seeds) {
-  const cell = PAR.dsep, gw = Math.ceil(W / cell) + 3, gh = Math.ceil(H / cell) + 3;
+function streamlines(C, S, seeds, ok, dsep = PAR.dsep) {
+  const dtest = PAR.dtest * dsep / PAR.dsep, cell = dsep, gw = Math.ceil(W / cell) + 3, gh = Math.ceil(H / cell) + 3;
   const head = new Int32Array(gw * gh).fill(-1); let cap = 1 << 20, nxt = new Int32Array(cap), px = new Float32Array(cap), py = new Float32Array(cap), pl = new Int32Array(cap), np = 0;
   const grow = () => { cap *= 2; const g = (A, T) => { const o = new T(cap); o.set(A); return o; }; nxt = g(nxt, Int32Array); px = g(px, Float32Array); py = g(py, Float32Array); pl = g(pl, Int32Array); };
   const dirat = (x, y) => {
@@ -182,6 +188,7 @@ function streamlines(C, S, seeds) {
     return false;
   };
   const trace = (sx, sy, lid) => {
+    if (ok && !ok(sx, sy)) return [];
     const halves = [], d0 = dirat(sx, sy);
     for (const sgn of [1, -1]) {
       let x = sx, y = sy, dx = sgn * d0[0], dy = sgn * d0[1]; const pts = [];
@@ -190,7 +197,7 @@ function streamlines(C, S, seeds) {
         if (tx * dx + ty * dy < PAR.cosTurn) break;
         dx = tx; dy = ty; const nx = x + PAR.step * dx, ny = y + PAR.step * dy;
         if (nx < 0 || ny < 0 || nx > W - 1.001 || ny > H - 1.001) break;
-        if (near(nx, ny, PAR.dtest, lid)) break;
+        if (near(nx, ny, dtest, lid) || (ok && !ok(nx, ny))) break;
         x = nx; y = ny; pts.push(x, y);
       }
       halves.push(pts);
@@ -211,26 +218,26 @@ function streamlines(C, S, seeds) {
   };
   let seeded = 0;
   if (seeds) for (const [sx, sy] of seeds) {
-    if (!(sx >= 0 && sy >= 0 && sx <= W - 1.001 && sy <= H - 1.001) || near(sx, sy, PAR.dsep * 0.95, -1)) continue;
+    if (!(sx >= 0 && sy >= 0 && sx <= W - 1.001 && sy <= H - 1.001) || near(sx, sy, dsep * 0.95, -1)) continue;
     const pts = trace(sx, sy, lines.length); if (pts.length / 2 >= PAR.minLen) { queue.push(add(pts)); seeded++; }
   }
-  const fallback = [[W / 2, H / 2]]; for (let y = PAR.dsep; y < H - 1; y += PAR.dsep * 6) for (let x = PAR.dsep; x < W - 1; x += PAR.dsep * 6) fallback.push([x + 0.5, y + 0.5]);
+  const fallback = [[W / 2, H / 2]]; for (let y = dsep; y < H - 1; y += dsep * 6) for (let x = dsep; x < W - 1; x += dsep * 6) fallback.push([x + 0.5, y + 0.5]);
   let fi = 0;
   for (;;) {
     if (qh >= queue.length) {
-      while (fi < fallback.length && near(fallback[fi][0], fallback[fi][1], PAR.dsep, -1)) fi++;
+      while (fi < fallback.length && near(fallback[fi][0], fallback[fi][1], dsep, -1)) fi++;
       if (fi >= fallback.length) break;
       const pts = trace(fallback[fi][0], fallback[fi][1], lines.length); fi++;
       if (pts.length / 2 >= PAR.minLen) queue.push(add(pts));
       continue;
     }
-    const pts = lines[queue[qh++]], kk = Math.max(1, Math.floor(PAR.dsep / 2 / PAR.step)), n = pts.length / 2;
+    const pts = lines[queue[qh++]], kk = Math.max(1, Math.floor(dsep / 2 / PAR.step)), n = pts.length / 2;
     for (let i = 0; i < n; i += kk) {
       const x = pts[2 * i], y = pts[2 * i + 1], j0 = Math.max(i - 1, 0), j1 = Math.min(i + 1, n - 1);
       const tx = pts[2 * j1] - pts[2 * j0], ty = pts[2 * j1 + 1] - pts[2 * j0 + 1], m = Math.hypot(tx, ty) + 1e-9, nx = -ty / m, ny = tx / m;
       for (const sgn of [1, -1]) {
-        const sx = x + sgn * PAR.dsep * nx, sy = y + sgn * PAR.dsep * ny;
-        if (sx < 0 || sy < 0 || sx > W - 1.001 || sy > H - 1.001 || near(sx, sy, PAR.dsep * 0.95, -1)) continue;
+        const sx = x + sgn * dsep * nx, sy = y + sgn * dsep * ny;
+        if (sx < 0 || sy < 0 || sx > W - 1.001 || sy > H - 1.001 || near(sx, sy, dsep * 0.95, -1)) continue;
         const np2 = trace(sx, sy, lines.length); if (np2.length / 2 >= PAR.minLen) queue.push(add(np2));
       }
     }
@@ -239,12 +246,12 @@ function streamlines(C, S, seeds) {
 }
 
 // ---------------------------------------------------------------- widths from the darkness along each stroke, then triangle strips
-function buildStrips(lines, D) {                           // D: darkness 0..1 at half resolution (1 - blurred overlay ink)
+function buildStrips(lines, D, lo = 0) {                           // D: darkness 0..1 at half resolution (1 - blurred overlay ink)
   const runs = []; let nv = 0;
   for (const p of lines) {
     const n = p.length / 2; if (n < 2) continue;
     const t = new Float32Array(n);
-    for (let i = 0; i < n; i++) { const d = bil(D, FW, FH, p[2 * i] * 0.5, p[2 * i + 1] * 0.5); t[i] = Math.pow(Math.min(1, Math.max(0, (d - PAR.tLo) / (PAR.tHi - PAR.tLo))), PAR.gamma); }
+    for (let i = 0; i < n; i++) { const d = Math.max(0, (bil(D, FW, FH, p[2 * i] * 0.5, p[2 * i + 1] * 0.5) - lo) / (1 - lo)); t[i] = Math.pow(Math.min(1, Math.max(0, (d - PAR.tLo) / (PAR.tHi - PAR.tLo))), PAR.gamma); }
     const k = PAR.win, hk = k >> 1, ts = new Float32Array(n);                // moving average along the stroke, edges padded
     let s = 0; for (let i = -hk; i <= hk; i++) s += t[Math.min(n - 1, Math.max(0, i))];
     for (let i = 0; i < n; i++) { ts[i] = s / k; s += t[Math.min(n - 1, i + hk + 1)] - t[Math.max(0, i - hk)]; }
@@ -289,7 +296,25 @@ function runFrame(luma /* Uint8Array 540 x 960 */) {
   }
   const tL = Date.now(), { lines, seeded } = streamlines(C, S, seeds), tS = Date.now();
   state.prevQ = Q; state.prevMids = lines.map((p) => { const n = p.length / 2 >> 1; return [p[2 * n], p[2 * n + 1]]; });
-  const out = buildStrips(lines, Dk);
+  let out;
+  if (!HATCH) out = buildStrips(lines, Dk);
+  else {                                                   // tone (auto-levelled) sets the weight; crossing layers in the dark
+    const Lb = gblur(L2, FW, FH, 1.2), hist = new Uint32Array(256); for (let i = 0; i < Lb.length; i++) hist[Math.min(255, Math.max(0, Math.round(Lb[i] * 255)))]++;
+    let cs = 0, p5 = 0, p95 = 255; for (; p5 < 255 && (cs += hist[p5]) < Lb.length * 0.04; p5++); cs = 0; for (; p95 > 0 && (cs += hist[p95]) < Lb.length * 0.04; p95--);
+    const lo = p5 / 255, sp = Math.max(0.15, (p95 - p5) / 255), Dt = new Float32Array(FW * FH);
+    for (let i = 0; i < Dt.length; i++) Dt[i] = Math.max(1 - Math.min(1, Math.max(0, (Lb[i] - lo) / sp)), 0.8 * Dk[i]);
+    const parts = [buildStrips(lines, Dt, 0)];
+    for (let k = 1; k < LAYERS.length; k++) {
+      const ly = LAYERS[k], ph = ly.rot * Math.PI / 180 * 2, cp = Math.cos(ph), sp2 = Math.sin(ph), C2 = new Float32Array(C.length), S2 = new Float32Array(C.length);
+      for (let i = 0; i < C.length; i++) { C2[i] = C[i] * cp - S[i] * sp2; S2[i] = C[i] * sp2 + S[i] * cp; }
+      const ok = (x, y) => bil(Dt, FW, FH, x * 0.5, y * 0.5) > ly.lo + 0.03;
+      parts.push(buildStrips(streamlines(C2, S2, null, ok, PAR.dsep * ly.ds).lines, Dt, ly.lo));
+    }
+    let nv = 0, ni = 0; for (const p of parts) { nv += p.V.length; ni += p.IX.length; }
+    const V = new Float32Array(nv), IX = new Uint32Array(ni); let vo = 0, io = 0;
+    for (const p of parts) { V.set(p.V, vo); const bs = vo / 4; for (let i = 0; i < p.IX.length; i++) IX[io + i] = p.IX[i] === 0xFFFFFFFF ? p.IX[i] : p.IX[i] + bs; vo += p.V.length; io += p.IX.length; }
+    out = { V, IX };
+  }
   return { V: out.V, IX: out.IX, stats: { lines: lines.length, seeded, verts: out.V.length / 4, field: tF - t0, flow: tL - tF, trace: tS - tL, strips: Date.now() - tS, total: Date.now() - t0 } };
 }
 if (typeof self !== 'undefined' && typeof self.postMessage === 'function' && typeof window === 'undefined') {

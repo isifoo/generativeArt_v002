@@ -115,3 +115,9 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 ## Clean strokes (v2.45)
 
 - The brush-stroke overlay now draws clean, evenly spaced lines: wider spacing (4.5 px of the 540 px trace), a much smoother direction field, almost no curl noise, no vortices, thicker lines in the dark. The busy look is still there as `?look=dense`.
+
+## Engraving look: cross-hatching (v2.46)
+
+- The brush-stroke overlay now looks like a banknote engraving: thin evenly spaced lines whose weight follows the picture's tone (auto-levelled), a second set of lines crossing at 58 degrees in the darker areas and a third at minus 58 degrees in the darkest, so the shadows become a woven mesh and the highlights stay open. Highlight lines break into short dashes.
+- Cost: about 200 to 270 ms per trace in Node (measured), so roughly 4 traces per second, down from about 7.
+- Looks: `?look=hatch` (default), `?look=clean` (v2.45, one set of even lines), `?look=dense` (Motion 007).
