@@ -121,3 +121,7 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 - The brush-stroke overlay now looks like a banknote engraving: thin evenly spaced lines whose weight follows the picture's tone (auto-levelled), a second set of lines crossing at 58 degrees in the darker areas and a third at minus 58 degrees in the darkest, so the shadows become a woven mesh and the highlights stay open. Highlight lines break into short dashes.
 - Cost: about 200 to 270 ms per trace in Node (measured), so roughly 4 traces per second, down from about 7.
 - Looks: `?look=hatch` (default), `?look=clean` (v2.45, one set of even lines), `?look=dense` (Motion 007).
+
+## Finer engraving (v2.47)
+
+- Hatch look: lines 30 percent closer (2.3 px of the 540 px trace), thinner, and a broad second direction field so flat areas follow the big tonal contours instead of forming blocky patches. Measured in Node: 270 to 345 ms per trace, about 3 traces a second.

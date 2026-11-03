@@ -13,8 +13,8 @@ const PAR = DENSE
   : LOOK === 'clean'
   ? { dsep: 4.5, dtest: 3.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 40, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 3.0, wMin: 0.6, win: 21, minRun: 16, sub: 2,
       nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 6 * Math.PI / 180, tens: 7, dirSm: 3 }
-  : { dsep: 3.2, dtest: 2.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 30, tLo: 0.04, tHi: 0.8, gamma: 0.9, wMax: 1.75, wMin: 0.28, win: 9, minRun: 6, sub: 2,   // hatch: engraving, tone sets the line weight, crossing layers in the dark
-      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 5 * Math.PI / 180, tens: 5, dirSm: 2 };
+  : { dsep: 2.3, dtest: 1.6, step: 0.5, cosTurn: Math.cos(0.35), minLen: 40, tLo: 0.04, tHi: 0.8, gamma: 0.9, wMax: 1.3, wMin: 0.2, win: 9, minRun: 6, sub: 2,   // hatch: engraving, tone sets the line weight, crossing layers in the dark
+      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 5 * Math.PI / 180, tens: 4, dirSm: 2, tensL: 16, tensLw: 1.5 };
 const HATCH = LOOK === 'hatch';
 const LAYERS = [{ rot: 0, lo: 0, ds: 1 }, { rot: 58, lo: 0.42, ds: 1.5 }, { rot: -58, lo: 0.68, ds: 1.5 }];   // each crossing layer only where it is darker than lo
 
@@ -153,6 +153,10 @@ function makeField(I2 /* ink-free picture at half resolution, 1 = paper */) {
   const e = new Float32Array(n), f = new Float32Array(n), gg = new Float32Array(n);
   for (let i = 0; i < n; i++) { e[i] = gx[i] * gx[i]; f[i] = gx[i] * gy[i]; gg[i] = gy[i] * gy[i]; }
   const E = gblur(e, GW, GH, PAR.tens), F = gblur(f, GW, GH, PAR.tens), G = gblur(gg, GW, GH, PAR.tens);
+  if (PAR.tensL) {                                         // a broad second tensor: where the picture is flat the lines follow the big tonal contours, not noise
+    const E2 = gblur(e, GW, GH, PAR.tensL), F2 = gblur(f, GW, GH, PAR.tensL), G2 = gblur(gg, GW, GH, PAR.tensL);
+    for (let i = 0; i < n; i++) { E[i] += PAR.tensLw * E2[i]; F[i] += PAR.tensLw * F2[i]; G[i] += PAR.tensLw * G2[i]; }
+  }
   const c0 = new Float32Array(n), s0 = new Float32Array(n);
   for (let i = 0; i < n; i++) { const th = 0.5 * Math.atan2(2 * F[i], E[i] - G[i]) + Math.PI / 2; c0[i] = Math.cos(2 * th); s0[i] = Math.sin(2 * th); }
   const c1 = gblur(c0, GW, GH, PAR.dirSm), s1 = gblur(s0, GW, GH, PAR.dirSm);
