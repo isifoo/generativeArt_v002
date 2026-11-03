@@ -86,3 +86,6 @@ Every slider: the number field sets the max; the -1 box (off by default) mirrors
 
 ## Cache fix (v2.36)
 The shared modules (ui.js, palette.js, colorwheel.js, depthmodel.js) are version-stamped through the import map in index.html (the build stamp is replaced with the others on each version), so a browser can no longer keep running an old ui.js under a new page (that is why v2.35 still showed the old -1 box).
+
+## Lines V2 on the nodes (v2.37)
+Lines V2 now runs on the Dollar 5 engine (lines.js, V2 flag; linesv2.js deleted): Lines > Alpha > LevelNN > Master, Duplicate level, Solo / Hide, Depth map + Extract per Alpha, Flip, Overlay, Matte menu. Each Lines node has Frequency (waves across) and Amplitude px, plus Width, Angle, Dash length, Dash gap, Rough edges. Starts as clean horizontal sine lines (angle 0, no dashes, no rough, Flip 0, Overlay 0); draws without waiting for the camera; the depth model loads only once an Extract is narrowed or the Depth map is soloed. Fix: Flip Bands 0 no longer flips everything (since v2.29).

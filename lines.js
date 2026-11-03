@@ -15,7 +15,8 @@ import { createDepthModel } from './depthmodel.js';
 const OW = 1080, OH = 1920, MAXL = 6;
 // DOLLAR 4 (?view=flines) reads the 6-level luma Map (channels per layer). DOLLAR 5 (?view=dollar5) is the same engine with the
 // DEPTH map (the Depth style's model) as the Map, and an AE Extract on it per layer (black / white point + softness).
-const D5 = VIEW === 'dollar5';
+const V2 = VIEW === 'linesv2';                              // LINES V2: this engine with Frequency + Amplitude on every Lines node
+const D5 = VIEW === 'dollar5' || V2;                        // (both read the depth map, with an Extract per Alpha)
 let depthNew = false;
 let dirty = true;                                          // settings changed: upload uniforms and refresh the node thumbnails
 // the fixed look of the lines (Gerry's settings, v2.00)
@@ -25,11 +26,14 @@ const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, 
   { id: 'mmot', label: 'Motion speed', min: 0, max: 0.5, step: 0.005, val: 0, off: 'still' }];   // the waves drift; 0 = still
 for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { head: `Level${pad(k)} Lines` },
-  { id: `l${k}w`, label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
-  { id: `l${k}a`, label: 'Angle deg', min: -90, max: 90, step: 1, val: -6 + (k - 1) * 30, off: '0' },
-  { id: `l${k}dl`, label: 'Dash length px (0 = continuous)', min: 0, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
+  ...(V2 ? [
+    { id: `l${k}fr`, label: 'Frequency (waves across)', min: 0, max: 20, step: 0.05, val: 3, off: 'straight lines' },
+    { id: `l${k}am`, label: 'Amplitude px', min: 0, max: 300, step: 0.5, val: 30, off: 'straight lines' }] : []),
+  { id: `l${k}w`, label: 'Width px', min: 0.3, max: 30, step: 0.1, val: V2 ? 2 : 2.3, off: 'hairlines' },
+  { id: `l${k}a`, label: 'Angle deg', min: -90, max: 90, step: 1, val: V2 ? 0 : -6 + (k - 1) * 30, off: '0' },
+  { id: `l${k}dl`, label: 'Dash length px (0 = continuous)', min: 0, max: 200, step: 0.5, val: V2 ? 0 : 24, off: 'continuous lines' },
   { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
-  { id: `l${k}rg`, label: 'Rough edges px', min: 0, max: 4, step: 0.05, val: 0.8, off: 'clean edges' },
+  { id: `l${k}rg`, label: 'Rough edges px', min: 0, max: 4, step: 0.05, val: V2 ? 0 : 0.8, off: 'clean edges' },
   { head: `Level${pad(k)} Alpha` },
   ...(D5 ? [                                               // Extract on the depth map: the layer shows where depth is between the points
     { id: `l${k}bp`, label: 'Black point', min: 0, max: 255, step: 1, val: 0, off: '0' },
@@ -56,14 +60,14 @@ else SLIDERS.push({ head: 'Map' },
 // FLIP by DETAIL: local contrast of the image (a spot lighter or darker than its surroundings at 'Detail size'); the sine
 // breaks and flips at every detail edge, so the line direction itself draws the eyes, brows, wrinkles, hair.
 SLIDERS.push({ head: 'Flip' },
-  { id: 'mfl', label: 'Bands (0 = no flip)', min: 0, max: 6, step: 1, val: 2, off: 'no flip' },
+  { id: 'mfl', label: 'Bands (0 = no flip)', min: 0, max: 6, step: 1, val: V2 ? 0 : 2, off: 'no flip' },
   { id: 'mfd', label: 'Detail size px', min: 6, max: 200, step: 1, val: 90, off: '90' },
   { id: 'mfg', label: 'Detail contrast', min: 1, max: 30, step: 0.5, val: 4.5, off: '4.5' },
   { id: 'mfth', label: 'Detail threshold', min: 0, max: 0.45, step: 0.01, val: 0.12, off: 'every darker spot' },   // only details clearly darker than around
   { id: 'mfx', label: 'Cross (darker details)', min: 0, max: 1, step: 1, val: 1, off: 'no cross: the turned lines replace' },
   { id: 'mft', label: 'Turn deg', min: -90, max: 90, step: 1, val: 45, off: 'no turn: only the wave flips' });   // flipped areas also turn their lines
 SLIDERS.push({ head: 'Overlay' },
-  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.9, off: 'no overlay' },
+  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: V2 ? 0 : 0.9, off: 'no overlay' },
   { id: 'ovd', label: 'Feature size px', min: 4, max: 80, step: 1, val: 20, off: '20' },
   { id: 'ovc', label: 'Contrast', min: 1, max: 40, step: 0.5, val: 22, off: '22' },
   { id: 'ovt', label: 'Threshold', min: 0, max: 2, step: 0.01, val: 0.3, off: '0' },
@@ -116,7 +120,7 @@ function blurInto(dst, r, src = tone) {
       for (let y = 0; y < TH; y++) { dst[y * TW + x] = a / (2 * r + 1); a += stmp[Math.min(TH - 1, y + r + 1) * TW + x] - stmp[Math.max(0, y - r) * TW + x]; } }
   }
 }
-let toneReady = false, upload = false;
+let toneReady = V2, upload = V2;                         // Lines V2 draws at once, without waiting for the camera
 let lastSm = -1;
 const dmap = new Float32Array(TN);                         // Dollar 5: the depth map at the map's size (0 far .. 1 near)
 function takeDepth(M) {
@@ -182,7 +186,8 @@ const bool D5 = ${D5};                            // per level softness override
 uniform float Linv[${MAXL}];
 uniform int Lmask[${MAXL}];                              // level channels on (bit k = grey level k), 0 = all graded
 const float THIN = ${LOOK.thin.toFixed(3)}, AMP = ${LOOK.amp.toFixed(3)}, LEN = ${LOOK.len.toFixed(3)}, CON = ${LOOK.con.toFixed(3)}, BRI = ${LOOK.bri.toFixed(3)};
-const float TAU = 6.2831853, K = TAU / LEN;
+const float TAU = 6.2831853;
+uniform vec2 Lwv[${MAXL}];                               // per level wave: amplitude px, k = 2 pi / wavelength
 float band(float L, bool inv) {                          // the Map: 0 (darkest) .. 6 (lightest edge), continuous
   float t = clamp((L - mapP.x) / max(1.0, mapP.y - mapP.x), 0.0, 1.0);
   float g = (1.0 - t) * 6.0;                               // internal: 6 = darkest (channel k = floor, 5 = darkest)
@@ -212,6 +217,7 @@ float rough(vec2 px, float r) {                          // ink on paper: the ed
 }
 float strokes(int i, vec2 px, vec2 t, float fl, vec4 p, float hw) {   // one set of lines in direction t (fl: wave direction)
   vec2 nrm = vec2(-t.y, t.x);
+  float AMP = Lwv[i].x, K = Lwv[i].y;
   float s = dot(px, t), arg = K * s + evo;
   float phi = (dot(px, nrm) + fl * AMP * sin(arg)) / sp + p.w;   // a pure sine, shifted by one spacing per line (+ half a spacing when checked)
   float g = length(nrm + (fl * AMP * K * cos(arg)) * t) / sp;    // its exact slope (no screen derivatives, so levels can be skipped)
@@ -270,7 +276,7 @@ void main() {
   // white x anything = anything, black x anything = black, so lines of every layer show through each other.
   float dt = texture(detT, uv).r;                         // the detail map: < 0.5 darker than around, > 0.5 lighter
   float fb = flipN > 0.0 ? floor(clamp((dt + flipT) * flipN, 0.0, flipN - 0.001)) : 0.0;   // flipT: only clearly darker details flip
-  FL = mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;                   // band 0 (the darker details) flips, then every other band
+  FL = flipN > 0.0 && mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;   // band 0 (the darker details) flips, then every other band; Bands 0 = nothing flips
   float v = 1.0;
   if (mode == 0) {
     if (ovQ.w > 0.5) v *= 1.0 - overlay();                 // the overlay, multiplied like the levels
@@ -305,7 +311,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -331,18 +337,20 @@ function ovUniforms() {
 }
 const levelMask = (k) => { let m = 0; for (const x of (chIn[k].value || '').split(',')) if (x !== '') m |= 1 << +x; return m; };
 let evoT = 0, lastT = performance.now();
-const uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL), uTs = new Int32Array(MAXL), uTw = new Int32Array(MAXL);
+const uLw = new Float32Array(MAXL * 2), uLp = new Float32Array(MAXL * 4), uLt = new Float32Array(MAXL * 4), uLs2 = new Float32Array(MAXL), uLe = new Float32Array(MAXL * 4), uLi = new Float32Array(MAXL), uLm = new Int32Array(MAXL), uLh = new Int32Array(MAXL), uLs = new Int32Array(MAXL), uTs = new Int32Array(MAXL), uTw = new Int32Array(MAXL);
 gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
     uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang); uLt[i * 4 + 2] = num(`l${k}rg`, 0);
+    if (V2) { uLw[i * 2] = P[`l${k}am`]; uLw[i * 2 + 1] = 2 * Math.PI * P[`l${k}fr`] / OW; }   // Frequency = waves across the picture
+    else { uLw[i * 2] = LOOK.amp; uLw[i * 2 + 1] = 2 * Math.PI / LOOK.len; }
     if (D5) { uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0); }
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k); uTs[i] = trackSrc(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, flipBands()); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform2fv(U.Lwv, uLw); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, flipBands()); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape();
   if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs); gl.uniform1iv(U.Lsrc, uTs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
@@ -459,7 +467,7 @@ function selectNode(grp) {
 // duplicate: the new level starts as a copy of the last one
 function addLevel() {
   const n = nLevels(); if (n >= MAXL) return;
-  for (const key of D5 ? ['w', 'a', 'dl', 'dg', 'rg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'rg', 'soft', 'inv']) {
+  for (const key of D5 ? [...(V2 ? ['fr', 'am'] : []), 'w', 'a', 'dl', 'dg', 'rg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'rg', 'soft', 'inv']) {
     const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
     b.cb.checked = a.cb.checked; b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.setMin();   // mirror box and range first,
     b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input')); b.cb.dispatchEvent(new Event('change'));   // then the value
@@ -615,7 +623,13 @@ function ovStyle() { if (!vidUp && vid.readyState >= 2) uploadVideo(); thumbDirt
 for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => setTimeout(ovStyle), true);
 // Dollar 5: the depth model makes the Map
 const DM = D5 ? createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; }) : null;
-if (D5) { DM.load(); setInterval(() => { if (DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer(); }, 100); }
+// Lines V2 loads the depth model only once it matters: an Extract narrowed on a level that uses the Map, or the Map soloed
+const needDepth = () => !V2 || solo.has('MP') || Array.from({ length: nLevels() }, (_, i) => i + 1).some((k) => !srcIn[k].value && (P[`l${k}bp`] > 0 || P[`l${k}wp`] < 255));
+let dmLoaded = false;
+if (D5) setInterval(() => {
+  if (!dmLoaded && needDepth()) { dmLoaded = true; DM.load(); }
+  if (dmLoaded && DM.M.ready && !DM.M.busy && vid.readyState >= 2) DM.infer();
+}, 100);
 nodeView.hidden = false;
 if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();
