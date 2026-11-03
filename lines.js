@@ -772,6 +772,10 @@ nodeView.hidden = false;
 if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();
 initDefaults('.r13');
+// Live strokes: turning it on also turns the Overlay Strength up (it is 0 in Lines V2), and ?strokes opens the page with only the strokes showing
+const setSlider = (id, v) => { const el = $('#' + id); if (el && +el.value !== v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+$('#ovm').addEventListener('input', () => { if (+$('#ovm').value >= 0.5 && !(P.ovs > 0)) setSlider('ovs', 1); });
+if (new URLSearchParams(location.search).has('strokes')) { setSlider('ovs', 1); setSlider('ovm', 1); solo.add('OV'); dirty = true; }
 ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
 window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn, hopeMix: () => (hopeUpd() ? ease(Math.min(1, (performance.now() - hT0) / 500)) : 1) };
 requestAnimationFrame(loop);

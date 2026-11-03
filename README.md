@@ -99,3 +99,6 @@ The Overlay can now be drawn as long, evenly spaced brush strokes (Overlay 016 f
 - **How:** `strokes-worker.js` (a Web Worker, so the picture stays smooth) turns the camera picture into the detector's ink, makes a direction field (structure tensor, slow eddies, whirls at the dark features), traces evenly spaced streamlines seeded from the previous frame's strokes carried by optical flow (Lucas-Kanade at 1/8 size), and sets each stroke's width from the darkness under it. The GPU draws the strokes as triangle strips into a 1080 x 1920 texture and the Overlay reads that texture.
 - **Speed (measured in Node, one camera frame):** about 135 to 175 ms per trace, so roughly 6 to 7 traces a second at most on that machine; the setting above is a ceiling. The Stats panel shows the real time per trace.
 - **Not in this version:** the eyes redrawn from face detection (Overlay Lab 024/025), and the stroke stabilising between frames beyond the flow seeding.
+
+## Live strokes: easier to switch on (v2.42)
+Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 0. Opening `?view=linesv2&strokes=1` starts Lines V2 with the live strokes on and only the Overlay showing (soloed); click the Master node to see everything again.
