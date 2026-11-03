@@ -77,3 +77,6 @@ Each Alpha has a Track matte (like After Effects): source None / Overlay / anoth
 
 ## One matte per Alpha (v2.33)
 Simpler: each Alpha has one Matte menu: Map (channels / Extract, as before), Flip (the Flip node's darker details), Overlay (the face features). The two-menu track matte and level-as-matte are gone (an old saved level-matte reads as Map). Drag the Flip or Overlay node onto an Alpha to choose it (again = back to Map); green wires show it; the Map's own settings dim when another matte is used. The camera texture is always updated, so the Overlay works as a matte, thumbnail and solo while hidden.
+
+## v2.34: cleanup and Lines V2
+Removed: Dollar, Dollar 1, Dollar 2, Dollar 3 and Dollar 4 (engrave.js and engrave2.js deleted; the Dollar 4 preset and site default removed; old links fall back to V1 Line). Dollar 5 stays (lines.js). New: Lines V2 (?view=linesv2, linesv2.js): horizontal lines that all carry the same sine, y + Amplitude x sin(2 pi Frequency x / width); sliders Frequency (waves across), Amplitude px, Spacing px, Width px, Motion speed (0 = still). One pixel shader with the exact distance to the nearest line; draws only when something changes.

@@ -13,12 +13,8 @@ export const VERSIONS = [
   { id: 'depth', label: 'Depth' },
   { id: 'depthdots', label: 'Depth Dots' },
   { id: 'depth3d', label: 'Depth 3D' },
-  { id: 'dollar', label: 'Dollar' },
-  { id: 'dollar1', label: 'Dollar 1' },
-  { id: 'dollar2', label: 'Dollar 2' },
-  { id: 'dollar3', label: 'Dollar 3' },
-  { id: 'flines', label: 'Dollar 4' },                          // was Fractal Lines (id kept: saved setups, presets)
-  { id: 'dollar5', label: 'Dollar 5' },                         // Dollar 4 with the depth map as the matte
+  { id: 'dollar5', label: 'Dollar 5' },                         // node based line levels, the depth map as the matte (lines.js)
+  { id: 'linesv2', label: 'Lines V2' },                         // horizontal lines, one sine wave (linesv2.js)
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
