@@ -289,7 +289,20 @@ float strokes(int i, vec2 px, vec2 t, float fl, vec4 p, float hw) {   // one set
   return ink;
 }
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+float engrave() {                                        // engraver's lines: contours of the depth map cut by tilted planes, weight from the tone, crossing sets in the dark
+  float dep = texture(shapeT, uv).r, tn = texture(toneT, uv).r, dk = clamp((0.62 - tn) * 2.3, 0.0, 1.0);
+  vec2 px = uv * res; float ink = 0.0;
+  for (int k = 0; k < 3; k++) {
+    float a = k == 0 ? 0.35 : (k == 1 ? 1.45 : 2.5), lo = k == 0 ? 0.0 : (k == 1 ? 0.38 : 0.66), per = k == 0 ? 7.0 : 9.0;
+    float phi = (dot(px, vec2(cos(a), sin(a))) + dep * 255.0 * 0.0 + dep * 140.0) / per;
+    float g = max(fwidth(phi), 1e-4), d = abs(fract(phi + 0.5) - 0.5);
+    float w = clamp((dk - lo) / (1.0 - lo), 0.0, 1.0) * 0.46 + 0.05 * step(lo, 0.001);
+    ink = max(ink, 1.0 - smoothstep(w - g, w + g, d));   // g = the line's slope in screen px, for clean anti-aliasing
+  }
+  return ink;
+}
 float overlayRaw() {                                     // delicate features: darker than their surroundings, soft threshold
+  if (ovMode > 1.5) return engrave();                    // ?look=depth
   if (ovMode > 0.5) return texture(strokeT, uv).r;       // Live strokes (v2.41)
   float f = luma(textureLod(vidT, uv, ovQ.x).rgb), c = luma(textureLod(vidT, uv, ovQ.y).rgb);
   float e = (c - f) * ovP.y;
@@ -425,7 +438,8 @@ const strokeVao = gl.createVertexArray(), strokeVb = gl.createBuffer(), strokeIb
 gl.bindVertexArray(strokeVao); gl.bindBuffer(gl.ARRAY_BUFFER, strokeVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, strokeIb); gl.bindVertexArray(null);
 gl.bindBuffer(gl.ARRAY_BUFFER, vb);                        // back to the picture's quad
 let strokeW = null, strokeBusy = false, strokeLast = 0, strokeUp = false, strokeMs = 0;
-const strokesOn = () => V2 && (ovOn() || usesOverlay());   // also when an Alpha's Matte is the Overlay
+const DEPTHLOOK = V2 && ['', 'depth'].includes(new URLSearchParams(location.search).get('look') || '');   // the default Overlay look; ?look=hatch | clean | dense are the traced strokes
+const strokesOn = () => V2 && !DEPTHLOOK && (ovOn() || usesOverlay());   // also when an Alpha's Matte is the Overlay
 function drawStrokes(V, IX) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, strokeFbo); gl.viewport(0, 0, SW, SH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(strokeProg); gl.bindVertexArray(strokeVao);
@@ -450,7 +464,7 @@ function pumpStrokes(now) {                                // the camera picture
   strokeW.postMessage({ L }, [L.buffer]);
 }
 function ovUniforms() {
-  gl.uniform1f(U.ovMode, strokesOn() ? 1 : 0);
+  gl.uniform1f(U.ovMode, V2 && DEPTHLOOK ? 2 : strokesOn() ? 1 : 0);
   const lod = (px) => Math.max(0, Math.log2(Math.max(1, px / (OW / VW))));
   gl.uniform4f(U.ovP, num('ovs', 0), num('ovc', 12), num('ovt', 0), Math.max(0.02, num('ovf', 0.02)));
   gl.uniform4f(U.ovQ, 1.0, lod(num('ovd', 20)), num('ovk', 0), ovOn() && vidUp ? 1 : 0);
@@ -763,7 +777,7 @@ for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => 
 // Dollar 5: the depth model makes the Map
 const DM = D5 ? createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; }) : null;
 // Lines V2 loads the depth model only once it matters: an Extract narrowed on a level that uses the Map, or the Map soloed
-const needDepth = () => !V2 || solo.has('MP') || solo.has('HP') || solo.has('BL') || srcIn.slice(1, nLevels() + 1).some((x) => ['HP', 'BL'].includes(x.value)) || Array.from({ length: nLevels() }, (_, i) => i + 1).some((k) => !srcIn[k].value && (P[`l${k}bp`] > 0 || P[`l${k}wp`] < 255));
+const needDepth = () => !V2 || (DEPTHLOOK && (ovOn() || usesOverlay())) || solo.has('MP') || solo.has('HP') || solo.has('BL') || srcIn.slice(1, nLevels() + 1).some((x) => ['HP', 'BL'].includes(x.value)) || Array.from({ length: nLevels() }, (_, i) => i + 1).some((k) => !srcIn[k].value && (P[`l${k}bp`] > 0 || P[`l${k}wp`] < 255));
 let dmLoaded = false;
 if (D5) setInterval(() => {
   if (!dmLoaded && needDepth()) { dmLoaded = true; DM.load(); }

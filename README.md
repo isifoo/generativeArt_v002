@@ -125,3 +125,9 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 ## Finer engraving (v2.47)
 
 - Hatch look: lines 30 percent closer (2.3 px of the 540 px trace), thinner, and a broad second direction field so flat areas follow the big tonal contours instead of forming blocky patches. Measured in Node: 270 to 345 ms per trace, about 3 traces a second.
+
+## Engraving from the depth map (v2.48)
+
+- New default Overlay look in Lines V2: engraver's lines drawn by a shader. Three sets of lines are contours of the depth map cut by tilted planes, so they bend over the face the way a banknote engraver's do; the tone sets the line weight, and the second and third sets cross the first only in the darker areas. No tracing, so it runs at the full frame rate and is steady between frames. It needs the depth model, which loads when the Overlay (or an Alpha with Matte Overlay) is used.
+- `?look=hatch` | `clean` | `dense` bring back the traced brush strokes (worker) of v2.46, v2.45 and v2.41.
+- Lines can look busy (moire) when the picture is shown smaller than its 1080 px; the depth contours wobble where the depth model is noisy.
