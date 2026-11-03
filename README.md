@@ -102,3 +102,8 @@ The Overlay can now be drawn as long, evenly spaced brush strokes (Overlay 016 f
 
 ## Live strokes: easier to switch on (v2.42)
 Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 0. Opening `?view=linesv2&strokes=1` starts Lines V2 with the live strokes on and only the Overlay showing (soloed); click the Master node to see everything again.
+
+## One overlay, calmer Hope (v2.43)
+
+- Lines V2: the brush-stroke overlay is now the only Overlay. The old feature sliders and the "Live strokes" switch are gone; Strength (default 1) and Strokes per second remain. Other views keep the old overlay.
+- Hope: defaults changed to Photo mix 0.85, Relief 1.5, Smoothness 24. The depth model's noise was lit by a strong lamp (Relief 6) and turned the flat areas into mottled noise once the depth map arrived.

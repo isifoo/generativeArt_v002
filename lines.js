@@ -72,21 +72,22 @@ SLIDERS.push({ head: 'Hope' },
   { id: 'hlv', label: 'Levels', min: 2, max: 6, step: 1, val: 5, off: '5' },
   { id: 'haz', label: 'Light angle deg', min: -180, max: 180, step: 1, val: 135, off: '135' },
   { id: 'hel', label: 'Light height deg', min: 5, max: 85, step: 1, val: 35, off: '35' },
-  { id: 'hrl', label: 'Relief', min: 0, max: 20, step: 0.1, val: 6, off: '6' },
-  { id: 'hph', label: 'Photo mix', min: 0, max: 1, step: 0.01, val: 0.35, off: '0.35' },
-  { id: 'hsm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 14, off: '14' },
+  { id: 'hrl', label: 'Relief', min: 0, max: 20, step: 0.1, val: 1.5, off: '1.5' },
+  { id: 'hph', label: 'Photo mix', min: 0, max: 1, step: 0.01, val: 0.85, off: '0.85' },
+  { id: 'hsm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 24, off: '24' },
   { id: 'hed', label: 'Edge softness', min: 0, max: 1, step: 0.01, val: 0.25, off: 'crisp' });
 // BLEND: the Overlay (its features, black on white) and the depth map in a blend mode
 SLIDERS.push({ head: 'Blend' }, { id: 'bmx', label: 'Mix', min: 0, max: 1, step: 0.01, val: 1, off: '1' });
 SLIDERS.push({ head: 'Overlay' },
-  { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: V2 ? 0 : 0.9, off: 'no overlay' },
-  { id: 'ovd', label: 'Feature size px', min: 4, max: 80, step: 1, val: 20, off: '20' },
-  { id: 'ovc', label: 'Contrast', min: 1, max: 40, step: 0.5, val: 22, off: '22' },
-  { id: 'ovt', label: 'Threshold', min: 0, max: 2, step: 0.01, val: 0.3, off: '0' },
-  { id: 'ovf', label: 'Softness', min: 0.02, max: 1.5, step: 0.01, val: 0.45, off: 'hard' },
-  { id: 'ovk', label: 'Solid blacks', min: 0, max: 0.6, step: 0.01, val: 0.18, off: 'none' },
-  { id: 'ovm', label: 'Live strokes (1 = brush strokes)', min: 0, max: 1, step: 1, val: 0, off: '0' },
-  { id: 'ovr', label: 'Strokes per second', min: 1, max: 15, step: 1, val: 8, off: '8' });
+  ...(V2 ? [   // Lines V2: the brush-stroke overlay is the only overlay
+    { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 1, off: 'no overlay' },
+    { id: 'ovr', label: 'Strokes per second', min: 1, max: 15, step: 1, val: 8, off: '8' }] : [
+    { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: 0.9, off: 'no overlay' },
+    { id: 'ovd', label: 'Feature size px', min: 4, max: 80, step: 1, val: 20, off: '20' },
+    { id: 'ovc', label: 'Contrast', min: 1, max: 40, step: 0.5, val: 22, off: '22' },
+    { id: 'ovt', label: 'Threshold', min: 0, max: 2, step: 0.01, val: 0.3, off: '0' },
+    { id: 'ovf', label: 'Softness', min: 0.02, max: 1.5, step: 0.01, val: 0.45, off: 'hard' },
+    { id: 'ovk', label: 'Solid blacks', min: 0, max: 0.6, step: 0.01, val: 0.18, off: 'none' }]));
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -424,7 +425,7 @@ const strokeVao = gl.createVertexArray(), strokeVb = gl.createBuffer(), strokeIb
 gl.bindVertexArray(strokeVao); gl.bindBuffer(gl.ARRAY_BUFFER, strokeVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, strokeIb); gl.bindVertexArray(null);
 gl.bindBuffer(gl.ARRAY_BUFFER, vb);                        // back to the picture's quad
 let strokeW = null, strokeBusy = false, strokeLast = 0, strokeUp = false, strokeMs = 0;
-const strokesOn = () => num('ovm', 0) >= 0.5 && ovOn();
+const strokesOn = () => V2 && ovOn();
 function drawStrokes(V, IX) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, strokeFbo); gl.viewport(0, 0, SW, SH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(strokeProg); gl.bindVertexArray(strokeVao);
@@ -449,7 +450,7 @@ function pumpStrokes(now) {                                // the camera picture
   strokeW.postMessage({ L }, [L.buffer]);
 }
 function ovUniforms() {
-  gl.uniform1f(U.ovMode, strokesOn() && strokeUp ? 1 : 0);
+  gl.uniform1f(U.ovMode, strokesOn() ? 1 : 0);
   const lod = (px) => Math.max(0, Math.log2(Math.max(1, px / (OW / VW))));
   gl.uniform4f(U.ovP, num('ovs', 0), num('ovc', 12), num('ovt', 0), Math.max(0.02, num('ovf', 0.02)));
   gl.uniform4f(U.ovQ, 1.0, lod(num('ovd', 20)), num('ovk', 0), ovOn() && vidUp ? 1 : 0);
@@ -773,9 +774,7 @@ if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();
 initDefaults('.r13');
 // Live strokes: turning it on also turns the Overlay Strength up (it is 0 in Lines V2), and ?strokes opens the page with only the strokes showing
-const setSlider = (id, v) => { const el = $('#' + id); if (el && +el.value !== v) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
-$('#ovm').addEventListener('input', () => { if (+$('#ovm').value >= 0.5 && !(P.ovs > 0)) setSlider('ovs', 1); });
-if (new URLSearchParams(location.search).has('strokes')) { setSlider('ovs', 1); setSlider('ovm', 1); solo.add('OV'); dirty = true; }
+if (new URLSearchParams(location.search).has('strokes')) { solo.add('OV'); dirty = true; }
 ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
 window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn, hopeMix: () => (hopeUpd() ? ease(Math.min(1, (performance.now() - hT0) / 500)) : 1) };
 requestAnimationFrame(loop);
