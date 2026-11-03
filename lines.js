@@ -425,7 +425,7 @@ const strokeVao = gl.createVertexArray(), strokeVb = gl.createBuffer(), strokeIb
 gl.bindVertexArray(strokeVao); gl.bindBuffer(gl.ARRAY_BUFFER, strokeVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, strokeIb); gl.bindVertexArray(null);
 gl.bindBuffer(gl.ARRAY_BUFFER, vb);                        // back to the picture's quad
 let strokeW = null, strokeBusy = false, strokeLast = 0, strokeUp = false, strokeMs = 0;
-const strokesOn = () => V2 && ovOn();
+const strokesOn = () => V2 && (ovOn() || usesOverlay());   // also when an Alpha's Matte is the Overlay
 function drawStrokes(V, IX) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, strokeFbo); gl.viewport(0, 0, SW, SH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(strokeProg); gl.bindVertexArray(strokeVao);

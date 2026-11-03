@@ -107,3 +107,7 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 
 - Lines V2: the brush-stroke overlay is now the only Overlay. The old feature sliders and the "Live strokes" switch are gone; Strength (default 1) and Strokes per second remain. Other views keep the old overlay.
 - Hope: defaults changed to Photo mix 0.85, Relief 1.5, Smoothness 24. The depth model's noise was lit by a strong lamp (Relief 6) and turned the flat areas into mottled noise once the depth map arrived.
+
+## Overlay matte = the brush strokes (v2.44)
+
+- Lines V2: an Alpha whose Matte is "Overlay" now always gets the brush strokes (Motion 007), also when that Alpha is soloed or the Overlay node is hidden. Before, the strokes were only traced while the Overlay node itself was showing, so the Alpha got the old feature detector.
