@@ -23,7 +23,7 @@ const SLIDERS = [
   { id: 'dplr', label: 'Shape size px', min: 8, max: 160, step: 2, val: 48, off: '48' },
   { id: 'dpe', label: 'Edge sharpness', min: 0, max: 1, step: 0.01, val: 0.75, off: 'plain upsampling (soft edges)' },
   { id: 'dpd', label: 'Video detail', min: 0, max: 1, step: 0.01, val: 0.12, off: 'pure depth' },
-  { id: 'dpk', label: 'Colour steps', min: 2, max: 16, step: 1, val: 8, off: 'continuous' },
+  { id: 'dpk', label: 'Colour steps (0 = continuous)', min: 0, max: 16, step: 1, val: 0, off: 'continuous' },
   { head: 'Motion' },
   { id: 'dps', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.8, off: 'none' },
   { id: 'dpm', label: 'Motion follow', min: 0, max: 1, step: 0.01, val: 0.7, off: 'same smoothing everywhere' },
@@ -31,8 +31,7 @@ const SLIDERS = [
 ];
 const P = { mode: 'grey' };
 const val = buildSliders(SLIDERS, P);
-// colour steps start off (continuous): the box is unticked by default
-document.querySelector('#dpk').parentElement.querySelector('.onoff input').click();
+// colour steps start at 0: continuous
 
 // ---------------------------------------------------------------- model (shared: depthmodel.js)
 const DM = createDepthModel((id, def) => (P.on[id] === undefined ? def : val(id)), () => { upload = true; });
@@ -129,7 +128,7 @@ function render() {
   gl.uniform1f(U.detail, Math.max(0, val('dpd')));
   gl.uniform1f(U.gam, val('dpg') < 0 ? 1 : P.dpg);
   gl.uniform1f(U.con, val('dpc') < 0 ? 1 : P.dpc);
-  gl.uniform1f(U.steps, val('dpk') < 0 ? 0 : P.dpk);
+  gl.uniform1f(U.steps, P.dpk >= 2 ? P.dpk : 0);
   gl.uniform1f(U.mode, { grey: 0, palnear: 1, palfar: 2 }[P.mode] ?? 0);
   gl.uniform1f(U.ncol, pal.n);
   gl.uniform3fv(U.c0, rgb(cols[0])); gl.uniform3fv(U.c1, rgb(cols[pal.n === 3 ? 1 : 0])); gl.uniform3fv(U.c2, rgb(cols[cols.length - 1]));

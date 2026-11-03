@@ -81,8 +81,7 @@ body.editing #settings { transform:none; visibility:visible; transition:transfor
 .sl .mx { width:100%; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:3px; padding:2px 4px; font:inherit; }
 .onoff { display:flex; align-items:center; gap:2px; cursor:pointer; font-style:normal; color:var(--dim); font-size:11px; }
 .onoff i { font-style:normal; }
-.sl.off .lab, .sl.off output { color:#5a5856; }
-.sl.off output { color:#e8b04a; }
+.sl.neg .onoff, .sl.neg output { color:#e8b04a; }   /* -1 on: the range mirrors to -max */
 .ctl { display:grid; grid-template-columns:118px 1fr; gap:8px; align-items:center; margin:5px 0; }
 input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--line); background:none; }
 @media (max-width:760px) { #stage { height:calc(100vh - 120px); } }

@@ -80,3 +80,6 @@ Simpler: each Alpha has one Matte menu: Map (channels / Extract, as before), Fli
 
 ## v2.34: cleanup and Lines V2
 Removed: Dollar, Dollar 1, Dollar 2, Dollar 3 and Dollar 4 (engrave.js and engrave2.js deleted; the Dollar 4 preset and site default removed; old links fall back to V1 Line). Dollar 5 stays (lines.js). New: Lines V2 (?view=linesv2, linesv2.js): horizontal lines that all carry the same sine, y + Amplitude x sin(2 pi Frequency x / width); sliders Frequency (waves across), Amplitude px, Spacing px, Width px, Motion speed (0 = still). One pixel shader with the exact distance to the nearest line; draws only when something changes.
+
+## The -1 box mirrors the range (v2.35)
+Every slider: the number field sets the max; the -1 box (off by default) mirrors the range to -max .. max (e.g. Amplitude -1000 .. 1000: negative = the wave the other way). Off: the slider's own min .. max. Sliders are never switched off any more; where off meant something it is now a value: Dollar 5 Flip Bands 0 = no flip, Dash length 0 = continuous, Overlay Strength 0 = off; Depth Colour steps 0 = continuous; Depth 3D Cut edges 0 = no cut. Saved setups store "neg"; old saves never turn the mirror on.

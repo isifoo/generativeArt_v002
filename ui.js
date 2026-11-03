@@ -40,7 +40,7 @@ addEventListener('pointerup', () => { if (hold.drag) { hold.drag = false; hold.p
 addEventListener('pointercancel', () => { if (hold.drag) { hold.drag = false; hold.poke(); } });
 
 // ---------------------------------------------------------------- slider rows
-// list entries: { id, label, min, max, step, val, off }, or { head } for a group heading. Off sends -1 (P.on[id] = false).
+// list entries: { id, label, min, max, step, val, off }, or { head } for a group heading. The -1 box mirrors the range (-max .. max).
 const fmt = (v, step) => { const d = (String(step).split('.')[1] || '').length; return Number(v).toFixed(d); };
 export const rows = {};
 // folded groups, remembered per style
@@ -60,34 +60,37 @@ export function buildSliders(list, P) {
       h.onclick = () => { const open = b.hidden; set(open); if (open) folds.delete(key); else folds.add(key); saveFolds(); };
       $('#sliders').append(h, body); continue;
     }
-    P[s.id] = s.val; P.on[s.id] = s.on !== false;          // s.on === false: the slider starts switched off (-1)
+    // THE -1 BOX (off by default): on = the range mirrors to negative, from -max to +max (e.g. a sine turned the other way).
+    // Off = the slider's own minimum (0 or near it) up to max. Every slider is always live: P.on[id] stays true.
+    P[s.id] = s.val; P.on[s.id] = true;
     const row = document.createElement('div'); row.className = 'sl';
     row.innerHTML = `<span class="lab">${s.label}</span>` +
       `<input type="range" id="${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.val}">` +
       `<output></output>` +
       `<input type="number" class="mx" step="any" value="${s.max}" title="Max of the range">` +
-      `<label class="onoff" title="Off sends -1: ${s.off}"><input type="checkbox"${s.on === false ? '' : ' checked'}><i>-1</i></label>`;
+      `<label class="onoff" title="-1: the range goes from minus max to max (negative values: the other way)"><input type="checkbox"><i>-1</i></label>`;
     (body || $('#sliders')).append(row);
     const [rng, mx, cb] = row.querySelectorAll('input'), out = row.querySelector('output');
-    const show = () => { out.textContent = P.on[s.id] ? fmt(rng.value, s.step) : '-1'; };
+    const show = () => { out.textContent = fmt(rng.value, s.step); };
+    const setMin = () => {                                   // min = -max with the box on, the slider's own min with it off
+      const m = parseFloat(rng.max), lo = cb.checked ? -m : s.min;
+      rng.min = lo; if (parseFloat(rng.value) < lo) rng.value = lo;
+      row.classList.toggle('neg', cb.checked); P[s.id] = parseFloat(rng.value);
+    };
     rng.addEventListener('pointerdown', () => { hold.drag = true; hold.poke(); });
     rng.addEventListener('input', () => { P[s.id] = parseFloat(rng.value); show(); hold.poke(); });
     mx.addEventListener('change', () => {
       let m = parseFloat(mx.value);
-      if (!(m > parseFloat(rng.min))) m = parseFloat(rng.max);
+      if (!(m > (cb.checked ? 0 : s.min))) m = parseFloat(rng.max);
       mx.value = m; rng.max = m;
       if (parseFloat(rng.value) > m) rng.value = m;
-      P[s.id] = parseFloat(rng.value); show(); hold.poke();
+      setMin(); show(); hold.poke();
     });
-    cb.addEventListener('change', () => {
-      P.on[s.id] = cb.checked; rng.disabled = !cb.checked; row.classList.toggle('off', !cb.checked);
-      show(); hold.poke();
-    });
-    rows[s.id] = { rng, mx, cb };
-    if (s.on === false) { rng.disabled = true; row.classList.add('off'); }
+    cb.addEventListener('change', () => { setMin(); show(); hold.poke(); });
+    rows[s.id] = { rng, mx, cb, setMin };
     show();
   }
-  return (id) => (P.on[id] ? P[id] : -1);              // val(id): the value, or -1 when off
+  return (id) => P[id];                                    // val(id): the value
 }
 
 // ---------------------------------------------------------------- Edit button (closed by default: clean for viewing; the panel slides in)
@@ -214,15 +217,16 @@ export function initDefaults(rev = '') {
   const saveEls = () => [...document.querySelectorAll('[data-save]')].filter((el) => !el.closest('[hidden]'));
   const snapshot = () => {
     const o = { s: {}, c: {} };
-    for (const [id, r] of Object.entries(rows)) o.s[id] = { v: r.rng.value, max: r.rng.max, on: r.cb.checked };
+    for (const [id, r] of Object.entries(rows)) o.s[id] = { v: r.rng.value, max: r.rng.max, neg: r.cb.checked };
     for (const el of saveEls()) o.c[el.id] = el.type === 'checkbox' ? el.checked : el.value;
     return o;
   };
   const apply = (o) => {
     for (const [id, x] of Object.entries(o.s || {})) {
       const r = rows[id]; if (!r) continue;
-      r.rng.max = x.max; r.mx.value = x.max; r.rng.value = x.v; r.rng.dispatchEvent(new Event('input'));
-      r.cb.checked = x.on; r.cb.dispatchEvent(new Event('change'));
+      r.cb.checked = !!x.neg;                               // old saves ('on') never turn the mirror on
+      r.rng.max = x.max; r.mx.value = x.max; r.setMin(); r.rng.value = x.v; r.rng.dispatchEvent(new Event('input'));
+      r.cb.dispatchEvent(new Event('change'));
     }
     for (const [id, v] of Object.entries(o.c || {})) {
       const el = document.getElementById(id); if (!el) continue;

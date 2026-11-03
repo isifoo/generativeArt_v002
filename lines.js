@@ -27,7 +27,7 @@ for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { head: `Level${pad(k)} Lines` },
   { id: `l${k}w`, label: 'Width px', min: 0.3, max: 30, step: 0.1, val: 2.3, off: 'hairlines' },
   { id: `l${k}a`, label: 'Angle deg', min: -90, max: 90, step: 1, val: -6 + (k - 1) * 30, off: '0' },
-  { id: `l${k}dl`, label: 'Dash length px', min: 1, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
+  { id: `l${k}dl`, label: 'Dash length px (0 = continuous)', min: 0, max: 200, step: 0.5, val: 24, off: 'continuous lines' },
   { id: `l${k}dg`, label: 'Dash gap px', min: 0, max: 200, step: 0.5, val: 8, off: 'no gap' },
   { id: `l${k}rg`, label: 'Rough edges px', min: 0, max: 4, step: 0.05, val: 0.8, off: 'clean edges' },
   { head: `Level${pad(k)} Alpha` },
@@ -56,7 +56,7 @@ else SLIDERS.push({ head: 'Map' },
 // FLIP by DETAIL: local contrast of the image (a spot lighter or darker than its surroundings at 'Detail size'); the sine
 // breaks and flips at every detail edge, so the line direction itself draws the eyes, brows, wrinkles, hair.
 SLIDERS.push({ head: 'Flip' },
-  { id: 'mfl', label: 'Bands', min: 2, max: 6, step: 1, val: 2, off: 'no flip' },
+  { id: 'mfl', label: 'Bands (0 = no flip)', min: 0, max: 6, step: 1, val: 2, off: 'no flip' },
   { id: 'mfd', label: 'Detail size px', min: 6, max: 200, step: 1, val: 90, off: '90' },
   { id: 'mfg', label: 'Detail contrast', min: 1, max: 30, step: 0.5, val: 4.5, off: '4.5' },
   { id: 'mfth', label: 'Detail threshold', min: 0, max: 0.45, step: 0.01, val: 0.12, off: 'every darker spot' },   // only details clearly darker than around
@@ -72,6 +72,7 @@ SLIDERS.push({ head: 'Overlay' },
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
+const flipBands = () => (P.mfl >= 2 ? Math.round(P.mfl) : 0);   // Flip: fewer than 2 bands = no flip
 // MASTER: universal values every node reads, kept as CSS variables on :root (like the palette in css/main.css).
 const root = document.documentElement;
 const MASTER = { spacing: 'mspc', motion: 'mmot' };
@@ -335,13 +336,13 @@ gl.uniform2f(U.res, OW, OH);
 function setUniforms() {                                  // only when a setting changed (dirty)
   for (let k = 1; k <= MAXL; k++) {
     const i = k - 1, ang = num(`l${k}a`, 0) * Math.PI / 180;
-    uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P.on[`l${k}dl`] === false ? 0 : P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
+    uLp[i * 4] = num(`l${k}w`, 0.6); uLp[i * 4 + 1] = P[`l${k}dl`]; uLp[i * 4 + 2] = num(`l${k}dg`, 0); uLp[i * 4 + 3] = hfIn[k].value === '1' ? 0.5 : 0;
     uLt[i * 4] = Math.cos(ang); uLt[i * 4 + 1] = -Math.sin(ang); uLt[i * 4 + 2] = num(`l${k}rg`, 0);
     if (D5) { uLe[i * 4] = num(`l${k}bp`, 0); uLe[i * 4 + 1] = num(`l${k}wp`, 255); uLe[i * 4 + 2] = num(`l${k}bs`, 0); uLe[i * 4 + 3] = num(`l${k}ws`, 0); }
     else uLs2[i] = P.on[`l${k}soft`] === false ? -1 : P[`l${k}soft`] / 100;
     uLi[i] = num(`l${k}inv`, 0); uLm[i] = levelMask(k); uLh[i] = hideBits(k); uLs[i] = showBits(k); uTs[i] = trackSrc(k);
   }
-  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, P.on.mfl === false ? 0 : P.mfl); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
+  gl.uniform4fv(U.Lp, uLp); gl.uniform4fv(U.Lt, uLt); gl.uniform1fv(U.Lsoft, uLs2); gl.uniform1f(U.flipN, flipBands()); { const a = num('mft', 0) * Math.PI / 180; gl.uniform2f(U.flipR, Math.cos(a), Math.sin(a)); gl.uniform1f(U.flipX, num('mfx', 0)); gl.uniform1f(U.flipT, num('mfth', 0)); } gl.uniform4fv(U.Le, uLe); gl.uniform3f(U.mapP, num('mbp', 0), Math.max(num('mbp', 0) + 1, num('mwp', 255)), num('msf', 0) / 100);
   if (num('msm', 0) !== lastSm && toneReady) reshape();
   if (num('mfd', 90) + '|' + num('mfg', 4.5) !== detKey && toneReady) makeDetail(); gl.uniform1fv(U.Linv, uLi); gl.uniform1iv(U.Lmask, uLm); gl.uniform1iv(U.Lhide, uLh); gl.uniform1iv(U.Lshow, uLs); gl.uniform1iv(U.Lsrc, uTs);
   gl.uniform1f(U.sp, master('spacing', 15)); gl.uniform1i(U.nL, nLevels());
@@ -460,8 +461,8 @@ function addLevel() {
   const n = nLevels(); if (n >= MAXL) return;
   for (const key of D5 ? ['w', 'a', 'dl', 'dg', 'rg', 'bp', 'wp', 'bs', 'ws'] : ['w', 'a', 'dl', 'dg', 'rg', 'soft', 'inv']) {
     const a = rows[`l${n}${key}`], b = rows[`l${n + 1}${key}`];
-    b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input'));
-    if (b.cb.checked !== a.cb.checked) b.cb.click();
+    b.cb.checked = a.cb.checked; b.rng.max = a.rng.max; b.mx.value = a.rng.max; b.setMin();   // mirror box and range first,
+    b.rng.value = a.rng.value; b.rng.dispatchEvent(new Event('input')); b.cb.dispatchEvent(new Event('change'));   // then the value
   }
   chIn[n + 1].value = chIn[n].value; chIn[n + 1].dispatchEvent(new Event('input'));
   hfIn[n + 1].value = hfIn[n].value; hfIn[n + 1].dispatchEvent(new Event('input'));
@@ -504,7 +505,7 @@ function layoutWires() {
   const g = nodeView.querySelector('.ngrid'); if (!g) return;
   // fit the graph to its column: scale it down (never up), and cancel the empty space the scale leaves
   const z = Math.min(1, (nodeView.clientWidth - 24) / g.offsetWidth);
-  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + P.on.mfl + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value, srcIn.map((x) => x.value).join()].join('|');
+  const r = g.getBoundingClientRect(), key = nodeView.clientWidth + '|' + flipBands() + '|' + [r.width, r.height, nLevels(), [...solo].join(), hdIn.map((x) => x.value).join(), ovHideIn.value, srcIn.map((x) => x.value).join()].join('|');
   if (key === wiresKey) return; wiresKey = key;
   g.style.transform = z < 1 ? `scale(${z})` : ''; g.style.marginRight = (z - 1) * g.offsetWidth + 'px'; g.style.marginBottom = (z - 1) * g.offsetHeight + 'px';
   const r2 = g.getBoundingClientRect();
@@ -530,7 +531,7 @@ function layoutWires() {
   const fe = nodeView.querySelector('.node.flip').getBoundingClientRect(), fx = (fe.left - r2.left) / z - 5, fy = (fe.top - r2.top + fe.height / 2) / z;
   let fbus = `M${fx + 5},${fy} L${fx},${fy}`, ftop = fy;
   for (let k = 1; k <= n; k++) { const l = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Lines"]`), false); ftop = Math.min(ftop, l[1]); fbus += ` M${fx},${l[1]} L${l[0]},${l[1]}`; }
-  w += `<path class="fbus${P.on.mfl === false ? ' dash' : ''}" d="${fbus} M${fx},${fy} L${fx},${ftop}"/>`;
+  w += `<path class="fbus${flipBands() ? '' : ' dash'}" d="${fbus} M${fx},${fy} L${fx},${ftop}"/>`;
   nodeView.querySelector('.wires').innerHTML = w;
 }
 setInterval(layoutNodes, 250);                           // cheap: two layout reads, the SVG only when the size changed

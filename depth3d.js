@@ -21,7 +21,7 @@ const SLIDERS = [
   { id: 'd3z', label: 'Depth amount', min: 0, max: 3, step: 0.01, val: 0.9, off: 'flat' },
   { id: 'd3c', label: 'Depth curve', min: 0.3, max: 3, step: 0.01, val: 1.3, off: 'linear (1)' },
   { id: 'd3g', label: 'Mesh detail', min: 40, max: 260, step: 2, val: 160, off: '40' },
-  { id: 'd3k', label: 'Cut edges', min: 0.01, max: 0.4, step: 0.005, val: 0.07, off: 'no cut: jumps become the sides of the objects' },
+  { id: 'd3k', label: 'Cut edges (0 = no cut)', min: 0, max: 0.4, step: 0.005, val: 0, off: 'no cut: jumps become the sides of the objects' },
   { id: 'd3m', label: 'Surface smoothing', min: 0, max: 4, step: 1, val: 2, off: 'none' },
   { head: 'Camera' },
   { id: 'd3y', label: 'Turn deg', min: -70, max: 70, step: 0.5, val: 22, off: 'straight on' },
@@ -40,7 +40,6 @@ const SLIDERS = [
 const P = { look: 'video' };
 const val = buildSliders(SLIDERS, P);
 // cut edges starts off: the jumps become the sides of the objects (reads as solid 3D); tick it to cut the subject free
-document.querySelector('#d3k').parentElement.querySelector('.onoff input').click();
 const num = (id, def) => (P.on[id] === undefined ? def : val(id) < 0 ? def : P[id]);
 
 // ---------------------------------------------------------------- depth model (shared)
@@ -125,7 +124,7 @@ function updateMesh() {
   }
   geo.attributes.position.needsUpdate = true;
   // cut edges: leave out the cells whose corners differ more than the threshold
-  const cut = val('d3k') < 0 ? 9 : P.d3k, idx = geo.index.array; let n = 0;
+  const cut = P.d3k > 0 ? P.d3k : 9, idx = geo.index.array; let n = 0;
   for (let j = 0; j < GY - 1; j++) for (let i = 0; i < GX - 1; i++) {
     const a = j * GX + i, b = a + 1, c = a + GX, d = c + 1;
     const lo = Math.min(dz[a], dz[b], dz[c], dz[d]), hi = Math.max(dz[a], dz[b], dz[c], dz[d]);
