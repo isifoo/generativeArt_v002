@@ -84,7 +84,9 @@ SLIDERS.push({ head: 'Overlay' },
   { id: 'ovc', label: 'Contrast', min: 1, max: 40, step: 0.5, val: 22, off: '22' },
   { id: 'ovt', label: 'Threshold', min: 0, max: 2, step: 0.01, val: 0.3, off: '0' },
   { id: 'ovf', label: 'Softness', min: 0.02, max: 1.5, step: 0.01, val: 0.45, off: 'hard' },
-  { id: 'ovk', label: 'Solid blacks', min: 0, max: 0.6, step: 0.01, val: 0.18, off: 'none' });
+  { id: 'ovk', label: 'Solid blacks', min: 0, max: 0.6, step: 0.01, val: 0.18, off: 'none' },
+  { id: 'ovm', label: 'Live strokes (1 = brush strokes)', min: 0, max: 1, step: 1, val: 0, off: '0' },
+  { id: 'ovr', label: 'Strokes per second', min: 1, max: 15, step: 1, val: 8, off: '8' });
 const P = {};
 buildSliders(SLIDERS, P);
 const num = (id, def) => (P.on[id] === false ? def : P[id]);
@@ -224,6 +226,8 @@ uniform float hopeMix, hopeN, hopeEdge;
 uniform int bMode; uniform float bMix;                   // Blend: mode, mix
 float HV = 255.0, HAA = 1.0, BV = 255.0, BAA = 1.0;      // this pixel's Hope / Blend values (0..255) and their anti-aliasing, set in main
 uniform sampler2D vidT;                                  // the camera, greyscale on the GPU, with mipmaps (blurs for free)
+uniform sampler2D strokeT;                               // Live strokes: the traced brush strokes (ink 1 = black), drawn by the GPU from the worker's geometry
+uniform float ovMode;                                    // 1 = the Overlay is the live strokes, 0 = the delicate features
 uniform vec4 ovP, ovQ;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
 uniform int Lsrc[${MAXL}];                               // matte per level: 0 Map, 1 Overlay, 2 Flip
 uniform float flipN;
@@ -285,6 +289,7 @@ float strokes(int i, vec2 px, vec2 t, float fl, vec4 p, float hw) {   // one set
 }
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 float overlayRaw() {                                     // delicate features: darker than their surroundings, soft threshold
+  if (ovMode > 0.5) return texture(strokeT, uv).r;       // Live strokes (v2.41)
   float f = luma(textureLod(vidT, uv, ovQ.x).rgb), c = luma(textureLod(vidT, uv, ovQ.y).rgb);
   float e = (c - f) * ovP.y;
   float ink = smoothstep(ovP.z, ovP.z + ovP.w, e);
@@ -382,7 +387,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'hopeA', 'hopeB', 'hopeMix', 'hopeN', 'hopeEdge', 'bMode', 'bMix', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'hopeA', 'hopeB', 'hopeMix', 'hopeN', 'hopeEdge', 'bMode', 'bMix', 'ovP', 'ovQ', 'strokeT', 'ovMode', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -394,14 +399,57 @@ const vidTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE3); gl.bindTexture
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
-gl.uniform1i(U.vidT, 3);
+gl.uniform1i(U.vidT, 3); gl.uniform1i(U.strokeT, 6);
 let vidUp = false;
 function uploadVideo() {                                   // a new camera frame -> the overlay texture (only while the overlay shows)
   drawCover(vcx, VW, VH);
   gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, vidTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vc); gl.generateMipmap(gl.TEXTURE_2D);
   vidUp = true;
 }
+// ---------------------------------------------------------------- LIVE STROKES (v2.41): the Overlay as long brush strokes (Overlay 016, Motion 007)
+// A worker traces the camera picture a few times a second (field, streamlines seeded from the last frame by optical flow, widths from the
+// darkness); the GPU draws its triangle strips into a texture, and the Overlay reads that texture instead of the delicate features.
+const SW = 1080, SH = 1920;
+const strokeTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, strokeTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, SW, SH);
+const strokeFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, strokeFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, strokeTex, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+const strokeProg = prog(`#version 300 es
+layout(location = 0) in vec4 vtx; out vec2 er;
+void main() { er = vtx.zw; gl_Position = vec4(vtx.x / 270.0 - 1.0, vtx.y / 480.0 - 1.0, 0.0, 1.0); }`, `#version 300 es
+precision mediump float; in vec2 er; out vec4 o;
+void main() { o = vec4(clamp((er.y - abs(er.x)) / 0.5 + 0.5, 0.0, 1.0), 0.0, 0.0, 1.0); }`);
+const strokeVao = gl.createVertexArray(), strokeVb = gl.createBuffer(), strokeIb = gl.createBuffer();
+gl.bindVertexArray(strokeVao); gl.bindBuffer(gl.ARRAY_BUFFER, strokeVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, strokeIb); gl.bindVertexArray(null);
+gl.bindBuffer(gl.ARRAY_BUFFER, vb);                        // back to the picture's quad
+let strokeW = null, strokeBusy = false, strokeLast = 0, strokeUp = false, strokeMs = 0;
+const strokesOn = () => num('ovm', 0) >= 0.5 && ovOn();
+function drawStrokes(V, IX) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, strokeFbo); gl.viewport(0, 0, SW, SH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.useProgram(strokeProg); gl.bindVertexArray(strokeVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, strokeVb); gl.bufferData(gl.ARRAY_BUFFER, V, gl.DYNAMIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, strokeIb); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, IX, gl.DYNAMIC_DRAW);
+  gl.enable(gl.BLEND); gl.blendEquation(gl.MAX); gl.blendFunc(gl.ONE, gl.ONE);       // overlapping strokes unite, they do not add
+  gl.drawElements(gl.TRIANGLE_STRIP, IX.length, gl.UNSIGNED_INT, 0);
+  gl.disable(gl.BLEND); gl.bindVertexArray(null); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(pr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+  strokeUp = true;
+}
+function pumpStrokes(now) {                                // the camera picture to the worker, at most N times a second and never while it is busy
+  if (!vidUp || strokeBusy || now - strokeLast < 1000 / num('ovr', 8)) return;
+  if (!strokeW) {
+    strokeW = new Worker(new URL('./strokes-worker.js' + new URL(import.meta.url).search, import.meta.url));
+    strokeW.onmessage = (e) => { strokeBusy = false; strokeMs = e.data.stats.total; drawStrokes(e.data.V, e.data.IX); fresh = true; thumbDirty = true; };
+    strokeW.onerror = (e) => { strokeBusy = false; $('#msg').textContent = 'Live strokes: ' + e.message; };
+  }
+  strokeLast = now; strokeBusy = true;
+  const d = vcx.getImageData(0, 0, VW, VH).data, L = new Uint8Array(VW * VH);
+  for (let i = 0, j = 0; i < L.length; i++, j += 4) L[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+  strokeW.postMessage({ L }, [L.buffer]);
+}
 function ovUniforms() {
+  gl.uniform1f(U.ovMode, strokesOn() && strokeUp ? 1 : 0);
   const lod = (px) => Math.max(0, Math.log2(Math.max(1, px / (OW / VW))));
   gl.uniform4f(U.ovP, num('ovs', 0), num('ovc', 12), num('ovt', 0), Math.max(0.02, num('ovf', 0.02)));
   gl.uniform4f(U.ovQ, 1.0, lod(num('ovd', 20)), num('ovk', 0), ovOn() && vidUp ? 1 : 0);
@@ -679,7 +727,8 @@ let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true, freshHop
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); uploadVideo(); thumbDirty = true; fresh = true; freshHope = true; }   // the camera texture always: the overlay, its thumbnail, solo and mattes read it
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); uploadVideo(); thumbDirty = true; fresh = true; freshHope = true; }
+  if (strokesOn()) pumpStrokes(now);                      // Live strokes: the worker redraws the Overlay a few times a second   // the camera texture always: the overlay, its thumbnail, solo and mattes read it
   if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; freshHope = true; }   // a new depth map
   if (D5 && hopeStep(now, freshHope)) fresh = true; freshHope = false;
   if (!toneReady || now - lastDraw < FRAME_MS) return;
@@ -703,7 +752,7 @@ function loop(now) {
 $('#restart').onclick = () => { evoT = 0; dirty = true; };
 cam.onStart = () => { lastMedia = -1; };
 setInterval(() => {
-  $('#stats').innerHTML = `<tr><td>drawn at</td><td>${canvas.width} x ${canvas.height}</td></tr><tr><td>frames / s</td><td>${frames}</td></tr><tr><td>CPU per frame</td><td>${frames ? (drawMs / frames).toFixed(1) : '-'} ms</td></tr>`;
+  $('#stats').innerHTML = (strokesOn() ? `<tr><td>strokes</td><td>${strokeMs} ms per trace</td></tr>` : '') + `<tr><td>drawn at</td><td>${canvas.width} x ${canvas.height}</td></tr><tr><td>frames / s</td><td>${frames}</td></tr><tr><td>CPU per frame</td><td>${frames ? (drawMs / frames).toFixed(1) : '-'} ms</td></tr>`;
   frames = 0; drawMs = 0;
 }, 1000);
 // ---------------------------------------------------------------- overlay (v2.31): drawn in the shader, see overlay()
