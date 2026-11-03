@@ -111,3 +111,7 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 ## Overlay matte = the brush strokes (v2.44)
 
 - Lines V2: an Alpha whose Matte is "Overlay" now always gets the brush strokes (Motion 007), also when that Alpha is soloed or the Overlay node is hidden. Before, the strokes were only traced while the Overlay node itself was showing, so the Alpha got the old feature detector.
+
+## Clean strokes (v2.45)
+
+- The brush-stroke overlay now draws clean, evenly spaced lines: wider spacing (4.5 px of the 540 px trace), a much smoother direction field, almost no curl noise, no vortices, thicker lines in the dark. The busy look is still there as `?look=dense`.

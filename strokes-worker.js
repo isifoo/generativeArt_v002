@@ -5,8 +5,12 @@
 'use strict';
 const W = 540, H = 960, FW = 270, FH = 480;
 const DET = { size: 30, contrast: 40, thr: 0.3, soft: 0.45, blacks: 0.18 };           // the detector settings Motion 007 was made with
-const PAR = { dsep: 3, dtest: 1.8, step: 0.5, cosTurn: Math.cos(0.5), minLen: 20, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 2.1, wMin: 0.3, win: 21, minRun: 16, sub: 2,
-  nCentres: 30, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 55 * Math.PI / 180 };
+const DENSE = typeof self !== 'undefined' && self.location && /look=dense/.test(self.location.search || '');   // ?look=dense = the original busy look (Motion 007)
+const PAR = DENSE
+  ? { dsep: 3, dtest: 1.8, step: 0.5, cosTurn: Math.cos(0.5), minLen: 20, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 2.1, wMin: 0.3, win: 21, minRun: 16, sub: 2,
+      nCentres: 30, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 55 * Math.PI / 180, tens: 3.75, dirSm: 0.75 }
+  : { dsep: 4.5, dtest: 3.2, step: 0.5, cosTurn: Math.cos(0.35), minLen: 40, tLo: 0.06, tHi: 0.65, gamma: 0.8, wMax: 3.0, wMin: 0.6, win: 21, minRun: 16, sub: 2,   // clean: even, wide spacing, smooth field
+      nCentres: 0, vStrength: 1.5, vRadius: 16.25, pitch: 25 * Math.PI / 180, curlDeg: 6 * Math.PI / 180, tens: 7, dirSm: 3 };
 
 // ---------------------------------------------------------------- blurs (true kernel when small, three box passes when large)
 function boxPass(a, w, h, r, horiz) {
@@ -131,7 +135,7 @@ function featureCentres(I) {                               // peaks of a blob de
     if (ok) cand.push([x, y, v]);
   }
   cand.sort((p, q) => q[2] - p[2]); const out = [];
-  for (const c of cand) { if (out.every((o) => (c[0] - o[0]) ** 2 + (c[1] - o[1]) ** 2 > 6.9 * 6.9)) { out.push(c); if (out.length >= PAR.nCentres) break; } }
+  for (const c of PAR.nCentres ? cand : []) { if (out.every((o) => (c[0] - o[0]) ** 2 + (c[1] - o[1]) ** 2 > 6.9 * 6.9)) { out.push(c); if (out.length >= PAR.nCentres) break; } }
   const v0 = out.length ? out[0][2] : 1; return out.map((c) => [c[0], c[1], c[2] / v0]);
 }
 function makeField(I2 /* ink-free picture at half resolution, 1 = paper */) {
@@ -142,10 +146,10 @@ function makeField(I2 /* ink-free picture at half resolution, 1 = paper */) {
   }
   const e = new Float32Array(n), f = new Float32Array(n), gg = new Float32Array(n);
   for (let i = 0; i < n; i++) { e[i] = gx[i] * gx[i]; f[i] = gx[i] * gy[i]; gg[i] = gy[i] * gy[i]; }
-  const E = gblur(e, GW, GH, 3.75), F = gblur(f, GW, GH, 3.75), G = gblur(gg, GW, GH, 3.75);
+  const E = gblur(e, GW, GH, PAR.tens), F = gblur(f, GW, GH, PAR.tens), G = gblur(gg, GW, GH, PAR.tens);
   const c0 = new Float32Array(n), s0 = new Float32Array(n);
   for (let i = 0; i < n; i++) { const th = 0.5 * Math.atan2(2 * F[i], E[i] - G[i]) + Math.PI / 2; c0[i] = Math.cos(2 * th); s0[i] = Math.sin(2 * th); }
-  const c1 = gblur(c0, GW, GH, 0.75), s1 = gblur(s0, GW, GH, 0.75);
+  const c1 = gblur(c0, GW, GH, PAR.dirSm), s1 = gblur(s0, GW, GH, PAR.dirSm);
   if (!noise) noise = makeNoise();
   const C = new Float32Array(n), S = new Float32Array(n);
   for (let i = 0; i < n; i++) { const a = 0.5 * Math.atan2(s1[i], c1[i]) + PAR.curlDeg * noise[i]; C[i] = Math.cos(2 * a); S[i] = Math.sin(2 * a); }
