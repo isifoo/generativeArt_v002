@@ -83,3 +83,6 @@ Removed: Dollar, Dollar 1, Dollar 2, Dollar 3 and Dollar 4 (engrave.js and engra
 
 ## The -1 box mirrors the range (v2.35)
 Every slider: the number field sets the max; the -1 box (off by default) mirrors the range to -max .. max (e.g. Amplitude -1000 .. 1000: negative = the wave the other way). Off: the slider's own min .. max. Sliders are never switched off any more; where off meant something it is now a value: Dollar 5 Flip Bands 0 = no flip, Dash length 0 = continuous, Overlay Strength 0 = off; Depth Colour steps 0 = continuous; Depth 3D Cut edges 0 = no cut. Saved setups store "neg"; old saves never turn the mirror on.
+
+## Cache fix (v2.36)
+The shared modules (ui.js, palette.js, colorwheel.js, depthmodel.js) are version-stamped through the import map in index.html (the build stamp is replaced with the others on each version), so a browser can no longer keep running an old ui.js under a new page (that is why v2.35 still showed the old -1 box).
