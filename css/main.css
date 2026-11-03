@@ -126,6 +126,8 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 #nodes .node.map { border-color:#7fa7c9; }
 #nodes .wires path.fbus { stroke:#b98ad6; stroke-width:1.5; }
 #nodes .node.flip { border-color:#b98ad6; }
+#nodes .node.hope { border-color:#d65a4a; }
+#nodes .node.blend { border-color:#c9a25f; }
 
 
 /* node edit (Fractal Lines): the panel shows the selected node's sliders only */

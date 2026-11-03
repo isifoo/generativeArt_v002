@@ -66,6 +66,18 @@ SLIDERS.push({ head: 'Flip' },
   { id: 'mfth', label: 'Detail threshold', min: 0, max: 0.45, step: 0.01, val: 0.12, off: 'every darker spot' },   // only details clearly darker than around
   { id: 'mfx', label: 'Cross (darker details)', min: 0, max: 1, step: 1, val: 1, off: 'no cross: the turned lines replace' },
   { id: 'mft', label: 'Turn deg', min: -90, max: 90, step: 1, val: 45, off: 'no turn: only the wave flips' });   // flipped areas also turn their lines
+// HOPE: a clean poster shading map (like the Obama Hope poster): the depth map (ML) lit by a virtual lamp (surface normals x light),
+// a little smoothed photo brightness for the eyes and mouth, cut into Levels with clean anti-aliased edges. No photo noise.
+SLIDERS.push({ head: 'Hope' },
+  { id: 'hlv', label: 'Levels', min: 2, max: 6, step: 1, val: 5, off: '5' },
+  { id: 'haz', label: 'Light angle deg', min: -180, max: 180, step: 1, val: 135, off: '135' },
+  { id: 'hel', label: 'Light height deg', min: 5, max: 85, step: 1, val: 35, off: '35' },
+  { id: 'hrl', label: 'Relief', min: 0, max: 20, step: 0.1, val: 6, off: '6' },
+  { id: 'hph', label: 'Photo mix', min: 0, max: 1, step: 0.01, val: 0.35, off: '0.35' },
+  { id: 'hsm', label: 'Smoothness px', min: 0, max: 80, step: 1, val: 14, off: '14' },
+  { id: 'hed', label: 'Edge softness', min: 0, max: 1, step: 0.01, val: 0.25, off: 'crisp' });
+// BLEND: the Overlay (its features, black on white) and the depth map in a blend mode
+SLIDERS.push({ head: 'Blend' }, { id: 'bmx', label: 'Mix', min: 0, max: 1, step: 0.01, val: 1, off: '1' });
 SLIDERS.push({ head: 'Overlay' },
   { id: 'ovs', label: 'Strength', min: 0, max: 1, step: 0.01, val: V2 ? 0 : 0.9, off: 'no overlay' },
   { id: 'ovd', label: 'Feature size px', min: 4, max: 80, step: 1, val: 20, off: '20' },
@@ -92,13 +104,13 @@ const hidden = (id, v) => { const i = document.createElement('input'); i.type = 
 const nIn = hidden('flevels', '1'), chIn = [], hfIn = [];
 const hdIn = [], srcIn = [];                             // matte per level: '' the Map, 'OV' the Overlay, 'FL' the Flip                                           // hide flags per level: 1 = Lines hidden, 2 = Alpha hidden, 4 = the level hidden
 for (let k = 1; k <= MAXL; k++) { chIn[k] = hidden(`l${k}ch`, ''); hfIn[k] = hidden(`l${k}half`, '0'); hdIn[k] = hidden(`l${k}hide`, '0'); srcIn[k] = hidden(`l${k}src`, ''); }   // half: lines moved half a spacing
-const ovHideIn = hidden('ovhide', '0');
+const ovHideIn = hidden('ovhide', '0'), hupdIn = hidden('hupd', '0'), bmodeIn = hidden('bmode', '0');
 // SOLO / HIDE, like After Effects. Node ids: L3 (Lines of level 3), A3 (its Alpha), O3 (the level), OV (the overlay).
 //  Hide always wins. With nothing soloed the Master shows every visible level (+ overlay). With anything soloed it shows only
 //  the soloed nodes (several at once), each as it is: Lines = the lines alone, Alpha = the matte, Level = lines x matte.
 //  Solo is a viewing tool (not saved); hides are saved with the setup.
 const solo = new Set();
-function trackSrc(k) { const v = srcIn[k].value; return v === 'OV' ? 1 : v === 'FL' ? 2 : 0; }   // the level's matte: 0 Map, 1 Overlay, 2 Flip
+function trackSrc(k) { return { OV: 1, FL: 2, HP: 3, BL: 4 }[srcIn[k].value] || 0; }   // the level's matte: 0 Map, 1 Overlay, 2 Flip, 3 Hope, 4 Blend   // the level's matte: 0 Map, 1 Overlay, 2 Flip
 const usesOverlay = () => srcIn.slice(1).some((x, i) => x.value === 'OV' && i + 1 <= nLevels());
 const hideBits = (k) => parseInt(hdIn[k].value) || 0;
 const nLevels = () => Math.min(MAXL, Math.max(1, parseInt(nIn.value) || 1));
@@ -141,6 +153,42 @@ function updateTone() {
   reshape(); makeDetail();
   toneReady = true; upload = true;
 }
+// ---------------------------------------------------------------- HOPE: the depth lit by a lamp, smoothed photo mixed in, auto levels
+const hD = new Float32Array(TN), hL = new Float32Array(TN), hT = new Float32Array(TN), hCur = new Float32Array(TN).fill(0.5), hA = new Float32Array(TN).fill(0.5), hB = new Float32Array(TN).fill(0.5);
+let hLo = 0, hHi = 1, hT0 = 0, hNext = 0, hopeOn = false;
+const hopeUpd = () => hupdIn.value === '1';                 // 0 realtime (smoothed in time), 1 two maps a second (crossfade)
+function hopeTarget() {
+  const r = Math.max(0, Math.round(num('hsm', 14) / (OW / TW) / 2));
+  if (r) { blurInto(hD, r, shape); blurInto(hL, r, tone); } else { hD.set(shape); hL.set(tone); }
+  const az = num('haz', 135) * Math.PI / 180, el = num('hel', 35) * Math.PI / 180, R = num('hrl', 6) * 20, pm = num('hph', 0.35);
+  const lx = Math.cos(el) * Math.cos(az), ly = -Math.cos(el) * Math.sin(az), lz = Math.sin(el);   // 0 deg = from the right, 90 = from the top
+  const hist = new Uint32Array(256);
+  for (let y = 0, i = 0; y < TH; y++) for (let x = 0; x < TW; x++, i++) {
+    const dx = (hD[i + (x < TW - 1 ? 1 : 0)] - hD[i - (x > 0 ? 1 : 0)]) * 0.5, dy = (hD[i + (y < TH - 1 ? TW : 0)] - hD[i - (y > 0 ? TW : 0)]) * 0.5;
+    let nx = -dx * R, ny = -dy * R, nz = 1; const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+    const lam = Math.max(0, nx * lx + ny * ly + nz * lz), v = lam * (1 - pm) + hL[i] * pm;
+    hT[i] = v; hist[Math.min(255, Math.max(0, Math.round(v * 255)))]++;
+  }
+  let c = 0, lo = 0, hi = 255; for (; lo < 255 && (c += hist[lo]) < TN * 0.02; lo++); c = 0; for (; hi > 0 && (c += hist[hi]) < TN * 0.02; hi--);
+  hLo += (lo / 255 - hLo) * 0.3; hHi += (Math.max(lo + 4, hi) / 255 - hHi) * 0.3;    // auto levels, following slowly (no pumping)
+  const k = 1 / Math.max(0.02, hHi - hLo); for (let i = 0; i < TN; i++) hT[i] = Math.min(1, Math.max(0, (hT[i] - hLo) * k));
+}
+function hopeUpload(arr, unit, t) { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TW, TH, gl.RED, gl.FLOAT, arr); }
+const ease = (t) => t * t * (3 - 2 * t);
+function hopeStep(now, freshFrame) {                        // returns true while it needs drawing
+  if (!toneReady) return false;
+  if (!hopeUpd()) {                                         // REALTIME: every new frame, smoothed in time
+    if (!freshFrame && hopeOn) return false;
+    hopeTarget(); for (let i = 0; i < TN; i++) hCur[i] += (hT[i] - hCur[i]) * (hopeOn ? 0.35 : 1);
+    hopeOn = true; hopeUpload(hCur, 5, T.hopeB); gl.uniform1f(U.hopeMix, 1); return true;
+  }
+  if (now >= hNext) {                                       // 2 PER SECOND: the next map, crossfaded over half a second
+    const m = ease(Math.min(1, (now - hT0) / 500)); for (let i = 0; i < TN; i++) hA[i] += (hB[i] - hA[i]) * m;
+    hopeTarget(); hB.set(hopeOn ? hT : hT); if (!hopeOn) hA.set(hT); hopeOn = true;
+    hopeUpload(hA, 4, T.hopeA); hopeUpload(hB, 5, T.hopeB); hT0 = now; hNext = now + 500;
+  }
+  const m = ease(Math.min(1, (now - hT0) / 500)); gl.uniform1f(U.hopeMix, m); return m < 1;
+}
 let detKey = '';
 function makeDetail() {                                    // detail = 0.5 + contrast x (fine - surroundings), 0..1
   const size = num('mfd', 90), gain = num('mfg', 4.5); detKey = size + '|' + gain;
@@ -171,6 +219,10 @@ uniform int Lhide[${MAXL}];                              // 1 lines hidden, 2 al
 uniform int Lshow[${MAXL}];                              // what the Master shows of each level: 1 lines alone, 2 matte alone, 4 lines x matte
 uniform vec4 Lp[${MAXL}];                                // width, dash length (0 = continuous), dash gap, shift (0 or 0.5 of a spacing)
 uniform vec4 Lt[${MAXL}];                                // line direction (cos, -sin of the angle), worked out once on the CPU
+uniform sampler2D hopeA, hopeB;                          // Hope: the previous and the next lit map (crossfaded)
+uniform float hopeMix, hopeN, hopeEdge;
+uniform int bMode; uniform float bMix;                   // Blend: mode, mix
+float HV = 255.0, HAA = 1.0, BV = 255.0, BAA = 1.0;      // this pixel's Hope / Blend values (0..255) and their anti-aliasing, set in main
 uniform sampler2D vidT;                                  // the camera, greyscale on the GPU, with mipmaps (blurs for free)
 uniform vec4 ovP, ovQ;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
 uniform int Lsrc[${MAXL}];                               // matte per level: 0 Map, 1 Overlay, 2 Flip
@@ -256,9 +308,12 @@ float levelBase(int i, vec2 px, float dk, float L, float aa, bool withAlpha) {  
   return ink * a;
 }
 // MATTE per level, one of three: 0 the Map (channels / Extract), 1 the Overlay (its ink), 2 the Flip (its darker details)
+float extract(int i, float V, float aa) { vec4 e = Le[i]; return smoothstep(e.x - e.z - aa, e.x, V) * (1.0 - smoothstep(e.y, e.y + e.w + aa, V)); }
 float alphaFull(int i, vec2 px, float dk, float L, float aa) {
   if ((Lhide[i] & 2) != 0) return 1.0;                   // Alpha hidden: fully on
   int s = Lsrc[i];
+  if (s == 3) return extract(i, HV, HAA);                // Hope, through this Alpha's Extract (pick the shading levels)
+  if (s == 4) return extract(i, BV, BAA);                // Blend, through this Alpha's Extract
   if (s == 1) return overlayRaw();
   if (s == 2) return flipN > 0.0 && FL < 0.0 ? 1.0 : 0.0;
   return alpha(i, L, aa);
@@ -277,6 +332,20 @@ void main() {
   float dt = texture(detT, uv).r;                         // the detail map: < 0.5 darker than around, > 0.5 lighter
   float fb = flipN > 0.0 ? floor(clamp((dt + flipT) * flipN, 0.0, flipN - 0.001)) : 0.0;   // flipT: only clearly darker details flip
   FL = flipN > 0.0 && mod(fb, 2.0) < 0.5 ? -1.0 : 1.0;   // band 0 (the darker details) flips, then every other band; Bands 0 = nothing flips
+  if (D5) {                                              // Hope and Blend, once per pixel (uniform control flow: fwidth is safe)
+    float hv = mix(texture(hopeA, uv).r, texture(hopeB, uv).r, hopeMix) * hopeN - 0.5;
+    float w = fwidth(hv) * (0.5 + hopeEdge * 6.0) + 1e-4;
+    float q = clamp(floor(hv) + smoothstep(0.5 - w, 0.5 + w, fract(hv)), 0.0, hopeN - 1.0);   // flat levels, clean edges
+    HV = q / max(1.0, hopeN - 1.0) * 255.0; HAA = fwidth(HV) * 0.5 + 1e-3;
+    float a = L / 255.0, b = 1.0 - overlayRaw(), r = a * b;
+    if (bMode == 1) r = 1.0 - (1.0 - a) * (1.0 - b);
+    else if (bMode == 2) r = a < 0.5 ? 2.0 * a * b : 1.0 - 2.0 * (1.0 - a) * (1.0 - b);
+    else if (bMode == 3) r = (1.0 - 2.0 * b) * a * a + 2.0 * b * a;
+    else if (bMode == 4) r = min(a, b);
+    else if (bMode == 5) r = max(a, b);
+    else if (bMode == 6) r = abs(a - b);
+    BV = mix(a, r, bMix) * 255.0; BAA = fwidth(BV) + 1e-3;
+  }
   float v = 1.0;
   if (mode == 0) {
     if (ovQ.w > 0.5) v *= 1.0 - overlay();                 // the overlay, multiplied like the levels
@@ -289,7 +358,9 @@ void main() {
     }
   }
   else if (mode == 3) v = 1.0 - alphaFull(solo, px, dk, L, aa);   // the Alpha (own matte x track matte)
-  else if (mode == 7) v = 1.0 - overlay();                 // the overlay alone
+  else if (mode == 7) v = 1.0 - overlay();
+  else if (mode == 8) v = HV / 255.0;                       // the Hope map
+  else if (mode == 9) v = BV / 255.0;                       // the Blend map                 // the overlay alone
   else if (mode == 6) v = flipN > 0.0 ? (FL > 0.0 ? 1.0 : 0.0) : 1.0;   // the Flip bands: black = flipped (the darker details)
   else if (mode == 5) v = D5 ? L / 255.0 : floor(6.0 - min(5.999, band(L, false))) / 5.0;   // the Map (depth: near white)   // the Map: six greys, 0 black .. 5 white
   else if (mode == 4) v = 1.0;
@@ -311,12 +382,12 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'hopeA', 'hopeB', 'hopeMix', 'hopeN', 'hopeEdge', 'bMode', 'bMix', 'ovP', 'ovQ', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, TW, TH); gl.uniform1i(U[name], unit); return t; };
-const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT'), det: tex(2, 'detT') };
+const T = { tone: tex(0, 'toneT'), shape: tex(1, 'shapeT'), det: tex(2, 'detT'), hopeA: tex(4, 'hopeA'), hopeB: tex(5, 'hopeB') };
 // the overlay's camera texture: 540 x 960 (half the picture), mipmapped
 const VW = 540, VH = 960, vc = document.createElement('canvas'); vc.width = VW; vc.height = VH; const vcx = vc.getContext('2d');
 const vidTex = gl.createTexture(); gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, vidTex);
@@ -386,13 +457,15 @@ function buildNodes() {
     <div class="node master" data-grp="Master" style="grid-row:1 / span ${n + 1};grid-column:6"><b>Master</b><span id="nMasterV"></span><span class="mmode">Multiply</span><canvas id="tm" width="90" height="160"></canvas></div>
     <div class="node map" data-grp="Map" style="grid-row:${n + 1};grid-column:2"><b>${D5 ? 'Depth map' : 'Map'}${sh('MP', true)}</b><canvas id="tmap" width="${TWN}" height="${THN}"></canvas></div>
     <div class="node flip" data-grp="Flip" style="grid-row:${n + 1};grid-column:1"><b>Flip${sh('FL', true)}</b><canvas id="tflip" width="${TWN}" height="${THN}"></canvas></div>
-    <button type="button" class="addlvl" style="grid-row:${n + 2};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
+    ${D5 ? `<div class="node hope" data-grp="Hope" style="grid-row:${n + 2};grid-column:1"><b>Hope${sh('HP', true)}</b><canvas id="thope" width="${TWN}" height="${THN}"></canvas></div>
+    <div class="node blend" data-grp="Blend" style="grid-row:${n + 2};grid-column:2"><b>Blend${sh('BL', true)}</b><canvas id="tblend" width="${TWN}" height="${THN}"></canvas></div>` : ''}
+    <button type="button" class="addlvl" style="grid-row:${n + 3};grid-column:1 / span 2;align-self:center"${n >= MAXL ? ' disabled' : ''}>+ Duplicate level</button>`;
   nodeView.innerHTML = `<div class="ngrid">${h}</div>`;
   nodeView.querySelector('.ngrid').style.gridTemplateColumns = 'auto auto 30px auto 30px auto';
   // DRAG TO CONNECT: from the Overlay or the Flip node onto an Alpha node = that Alpha's matte (drop it again = back to the Map)
-  for (const el of nodeView.querySelectorAll('[data-grp="Overlay"], .node.flip')) el.onpointerdown = (e) => {
+  for (const el of nodeView.querySelectorAll('[data-grp="Overlay"], .node.flip, .node.hope, .node.blend')) el.onpointerdown = (e) => {
     if (e.target.closest('.nb, .rm')) return;
-    const id = el.classList.contains('flip') ? 'FL' : 'OV', g = nodeView.querySelector('.ngrid'), wires = nodeView.querySelector('.wires');
+    const id = el.classList.contains('flip') ? 'FL' : el.classList.contains('hope') ? 'HP' : el.classList.contains('blend') ? 'BL' : 'OV', g = nodeView.querySelector('.ngrid'), wires = nodeView.querySelector('.wires');
     const z = g.getBoundingClientRect().width / g.offsetWidth, rel = (x, y) => { const r = g.getBoundingClientRect(); return [(x - r.left) / z, (y - r.top) / z]; };
     const b = el.getBoundingClientRect(), p0 = rel(b.left, b.top + b.height / 2), x0 = e.clientX, y0 = e.clientY;
     let tmp = null, moved = false;
@@ -434,7 +507,7 @@ function buildNodes() {
 // solo / hide buttons on every node
 const sh = (id, noHide) => `<span class="nb" data-id="${id}"><i class="so" title="Solo: show only this node">Solo</i>${noHide ? '' : '<i class="hd" title="Hide this node">Hide</i>'}</span>`;
 const nodeEl = (id) => nodeView.querySelector(`.nb[data-id="${id}"]`)?.closest('.node');
-const isHidden = (id) => id === 'MP' || id === 'FL' ? false : id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
+const isHidden = (id) => ['MP', 'FL', 'HP', 'BL'].includes(id) ? false : id === 'OV' ? ovHideIn.value === '1' : !!(hideBits(+id.slice(1)) & { L: 1, A: 2, O: 4 }[id[0]]);
 function toggleHide(id) {
   if (id === 'OV') { ovHideIn.value = isHidden(id) ? '0' : '1'; ovHideIn.dispatchEvent(new Event('input')); }
   else { const k = +id.slice(1); hdIn[k].value = String(hideBits(k) ^ { L: 1, A: 2, O: 4 }[id[0]]); hdIn[k].dispatchEvent(new Event('input')); }
@@ -500,6 +573,7 @@ function nodeThumbs(now) {
   render(6, 0, TWN, THN); grab('tflip', TWN, THN);
   render(0, 0, 90, 160); grab('tm', 90, 160);
   render(7, 0, TWN, THN); grab('tov', TWN, THN);
+  if (D5) { render(8, 0, TWN, THN); grab('thope', TWN, THN); render(9, 0, TWN, THN); grab('tblend', TWN, THN); }
   $('#nMasterV').textContent = 'spacing ' + master('spacing', 15) + ' px' + (master('motion', 0) > 0 ? ' · motion ' + master('motion', 0) : '');
 }
 function layoutNodes() {                                 // the panel's place and its wires, redrawn only when something moved
@@ -528,7 +602,7 @@ function layoutWires() {
   w += curve(pt(nodeView.querySelector('[data-grp="Overlay"]'), true), m, !ovOn());
   // mattes from the Overlay or the Flip: a green wire to the Alpha it feeds
   for (let k = 1; k <= n; k++) { const s = trackSrc(k); if (!s) continue;
-    const src = nodeView.querySelector(s === 1 ? '[data-grp="Overlay"]' : '.node.flip'), p = pt(src, s === 2), q = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true);
+    const src = nodeView.querySelector({ 1: '[data-grp="Overlay"]', 2: '.node.flip', 3: '.node.hope', 4: '.node.blend' }[s]), p = pt(src, s !== 1), q = pt(nodeView.querySelector(`[data-grp="Level${pad(k)} Alpha"]`), true);
     q[1] += 14; w += `<path class="trk" d="M${p[0]},${p[1]} C${p[0] - 30},${p[1]} ${q[0] + 30},${q[1]} ${q[0]},${q[1]}"/>`; }
   // the Map feeds every Alpha: a bus up the gap left of the Alpha column, a short tap into each Alpha
   const mp = nodeView.querySelector('.node.map'), mb = mp.getBoundingClientRect(), bx = (mb.left - r2.left) / z - 4, by = (mb.top - r2.top + mb.height / 2) / z;
@@ -564,17 +638,28 @@ for (let k = 1; k <= (D5 ? 0 : MAXL); k++) {
 // ---------------------------------------------------------------- matte: per Alpha, one of three (the Map, the Flip, the Overlay)
 for (let k = 1; k <= MAXL; k++) {
   const row = document.createElement('div'); row.className = 'chanrow trkrow';
-  row.innerHTML = `<span class="lab">Matte</span><span class="trk"><select class="tsrc"><option value="">${D5 ? 'Depth map' : 'Map'}</option><option value="FL">Flip</option><option value="OV">Overlay</option></select></span>`;
+  row.innerHTML = `<span class="lab">Matte</span><span class="trk"><select class="tsrc"><option value="">${D5 ? 'Depth map' : 'Map'}</option><option value="FL">Flip</option><option value="OV">Overlay</option>${D5 ? '<option value="HP">Hope</option><option value="BL">Blend</option>' : ''}</select></span>`;
   const body = [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === `Level${pad(k)} Alpha`).nextElementSibling;
   body.prepend(row);
   const sel = row.querySelector('select');
   sel.onchange = () => { srcIn[k].value = sel.value; srcIn[k].dispatchEvent(new Event('input')); };
   const show = () => {
-    const v = ['', 'FL', 'OV'].includes(srcIn[k].value) ? srcIn[k].value : ''; sel.value = v;
-    for (const r of body.children) if (r !== row) r.classList.toggle('mapOnly', !!v);   // the Map's own settings dim when another matte is used
+    const v = ['', 'FL', 'OV', ...(D5 ? ['HP', 'BL'] : [])].includes(srcIn[k].value) ? srcIn[k].value : ''; sel.value = v;
+    for (const r of body.children) if (r !== row) r.classList.toggle('mapOnly', !!v && !(D5 && ['HP', 'BL'].includes(v) && r.classList.contains('sl')));   // Hope / Blend keep the Extract   // the Map's own settings dim when another matte is used
     dirty = true; wiresKey = ''; if (typeof ovStyle === 'function') setTimeout(ovStyle);
   };
   srcIn[k].addEventListener('input', show); show(); setTimeout(show);   // again once every row of the panel exists
+}
+
+// ---------------------------------------------------------------- Hope: Update mode; Blend: blend mode (saved selects)
+if (D5) for (const [grp, inp, lab, opts] of [['Hope', hupdIn, 'Update', ['Realtime (smoothed)', '2 per second (crossfade)']],
+  ['Blend', bmodeIn, 'Mode', ['Multiply', 'Screen', 'Overlay', 'Soft light', 'Darken', 'Lighten', 'Difference']]]) {
+  const row = document.createElement('div'); row.className = 'chanrow trkrow';
+  row.innerHTML = `<span class="lab">${lab}</span><span class="trk"><select>${opts.map((o, i) => `<option value="${i}">${o}</option>`).join('')}</select></span>`;
+  [...document.querySelectorAll('#sliders h2.grp')].find((h) => h.textContent === grp).nextElementSibling.prepend(row);
+  const sel = row.querySelector('select');
+  sel.onchange = () => { inp.value = sel.value; inp.dispatchEvent(new Event('input')); };
+  inp.addEventListener('input', () => { sel.value = inp.value; dirty = true; freshHope = true; hNext = 0; });
 }
 
 // ---------------------------------------------------------------- half-spacing shift: one checkbox per level (in its Lines node)
@@ -589,13 +674,14 @@ for (let k = 1; k <= MAXL; k++) {
 
 // ---------------------------------------------------------------- loop
 // Draws only when there is something new: a video frame, a changed setting, or the slow drift (capped at 30 per second).
-for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => { dirty = true; }, true);
-let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true;
+for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => { dirty = true; freshHope = true; hNext = 0; }, true);
+let lastMedia = -1, lastDraw = 0, frames = 0, drawMs = 0, fresh = true, freshHope = true;
 const FRAME_MS = 1000 / 30 - 2;
 function loop(now) {
   requestAnimationFrame(loop);
-  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); uploadVideo(); thumbDirty = true; fresh = true; }   // the camera texture always: the overlay, its thumbnail, solo and mattes read it
-  if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; }   // a new depth map
+  if (vid.readyState >= 2 && vid.videoWidth && vid.currentTime !== lastMedia) { lastMedia = vid.currentTime; updateTone(); uploadVideo(); thumbDirty = true; fresh = true; freshHope = true; }   // the camera texture always: the overlay, its thumbnail, solo and mattes read it
+  if (D5 && depthNew) { depthNew = false; takeDepth(DM.M); reshape(); thumbDirty = true; fresh = true; freshHope = true; }   // a new depth map
+  if (D5 && hopeStep(now, freshHope)) fresh = true; freshHope = false;
   if (!toneReady || now - lastDraw < FRAME_MS) return;
   const speed = master('motion', 0);                      // Master > Motion speed (0 = still)
   if (!fresh && !dirty && !thumbDirty && speed <= 0) { lastT = now; return; }   // nothing changed: no redraw at all
@@ -604,8 +690,11 @@ function loop(now) {
   gl.uniform1f(U.evo, evoT * 6.2831853);
   if (dirty) { setUniforms(); dirty = false; thumbDirty = true; }
   ovUniforms();
+  if (D5) { gl.uniform1f(U.hopeN, Math.round(num('hlv', 5))); gl.uniform1f(U.hopeEdge, num('hed', 0.25)); gl.uniform1i(U.bMode, +bmodeIn.value || 0); gl.uniform1f(U.bMix, num('bmx', 1)); }
   nodeThumbs(now);
-  if (solo.has('OV')) { if (solo.size === 1) render(7); else render(0); }   // the overlay alone (or with other soloed nodes)
+  if (solo.has('HP')) render(8);                          // the Hope map
+  else if (solo.has('BL')) render(9);                     // the Blend map
+  else if (solo.has('OV')) { if (solo.size === 1) render(7); else render(0); }   // the overlay alone (or with other soloed nodes)
   else if (solo.has('FL')) render(6);                         // the Flip soloed: its bands
   else if (solo.has('MP')) render(5);                         // the Map soloed: its six greys
   else render(0);                                        // the full picture (solo / hide applied), always last
@@ -624,7 +713,7 @@ for (const ev of ['input', 'change']) $('#settings').addEventListener(ev, () => 
 // Dollar 5: the depth model makes the Map
 const DM = D5 ? createDepthModel((id, def) => (id === 'dpw' ? 0 : id in P ? (P.on[id] === false ? -1 : P[id]) : def), () => { depthNew = true; }) : null;
 // Lines V2 loads the depth model only once it matters: an Extract narrowed on a level that uses the Map, or the Map soloed
-const needDepth = () => !V2 || solo.has('MP') || Array.from({ length: nLevels() }, (_, i) => i + 1).some((k) => !srcIn[k].value && (P[`l${k}bp`] > 0 || P[`l${k}wp`] < 255));
+const needDepth = () => !V2 || solo.has('MP') || solo.has('HP') || solo.has('BL') || srcIn.slice(1, nLevels() + 1).some((x) => ['HP', 'BL'].includes(x.value)) || Array.from({ length: nLevels() }, (_, i) => i + 1).some((k) => !srcIn[k].value && (P[`l${k}bp`] > 0 || P[`l${k}wp`] < 255));
 let dmLoaded = false;
 if (D5) setInterval(() => {
   if (!dmLoaded && needDepth()) { dmLoaded = true; DM.load(); }
@@ -635,7 +724,7 @@ if (!document.body.classList.contains('editing')) $('#setbtn').click();
 buildNodes();
 initDefaults('.r13');
 ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
-window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn };
+window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn, hopeMix: () => (hopeUpd() ? ease(Math.min(1, (performance.now() - hT0) / 500)) : 1) };
 requestAnimationFrame(loop);
 versionCheck();
 if (!noCam) await startCamera();
