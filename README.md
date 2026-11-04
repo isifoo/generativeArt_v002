@@ -131,3 +131,9 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 - New default Overlay look in Lines V2: engraver's lines drawn by a shader. Three sets of lines are contours of the depth map cut by tilted planes, so they bend over the face the way a banknote engraver's do; the tone sets the line weight, and the second and third sets cross the first only in the darker areas. No tracing, so it runs at the full frame rate and is steady between frames. It needs the depth model, which loads when the Overlay (or an Alpha with Matte Overlay) is used.
 - `?look=hatch` | `clean` | `dense` bring back the traced brush strokes (worker) of v2.46, v2.45 and v2.41.
 - Lines can look busy (moire) when the picture is shown smaller than its 1080 px; the depth contours wobble where the depth model is noisy.
+
+## Windows (v2.49)
+
+- New version button **Windows** (`?view=windows`, `windows.js`): a night apartment block drawn by the GPU, and the person is made of the windows with their light on. The camera picture is read one window at a time; the depth model finds the person (near = lit), and the tone inside carves the face (eyes and shadows stay dark). Each window has its own fixed random switch-on level, so the portrait is a dither of lit windows; time smoothing keeps them from flickering. A few random lights elsewhere keep the block alive.
+- Settings: windows across, window height / width, person edge, face detail, threshold, contrast, random spread, lights elsewhere, invert, time smoothing, warm / cool, glow, facade brightness.
+- Needs the depth model (loads on start, like Depth). Tested on a recorded clip only, not a live camera.
