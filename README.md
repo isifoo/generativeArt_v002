@@ -149,3 +149,9 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 
 - A lit window now shows the texture of a real lit window: the 39 windows of the photograph that were drawn with their light on are kept as small textures (`windows/atlas.png`: curtains, frames, mullions, the fall of the light), and every lit window takes one of them (picked and flipped by its own number), mapped exactly onto that window's rectangle (`rectT`) and tinted warm or cool. Frames and bars stay dark against the light.
 - Glow is a separate layer: the light of the windows is drawn alone, blurred in three levels (about 8, 32 and 64 px at output size, each a down-sample plus a horizontal and a vertical pass) and added back. Settings: Glow and Glow spread (tight to wide).
+
+## Windows: new building, light from the camera's brightness (v2.52)
+
+- New, higher resolution block (`windows/bg.webp`, 1024 x 2000): 28 columns by 50 rows, 1,400 windows found offline. The picture is shown at its own proportions and the canvas is drawn at its full size.
+- Each window's light is a solid yellow laid over that window's own area in Screen mode (frames and curtains of the photograph stay visible). The brightness of the camera under the window sets its strength: dark gives a dim light, bright a strong one. Auto levels follow the person's brightness range (4 % to 96 %); Black point, White point, a contrast curve, Light strength and a small variation per window are the controls. The depth model fades the background so the person stands out (Fade the background).
+- Glow stays a separate layer in three blur levels. The lit windows of the photograph were put out as before. The older texture-per-window version (v2.51) is replaced.
