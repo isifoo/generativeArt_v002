@@ -137,3 +137,10 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 - New version button **Windows** (`?view=windows`, `windows.js`): a night apartment block drawn by the GPU, and the person is made of the windows with their light on. The camera picture is read one window at a time; the depth model finds the person (near = lit), and the tone inside carves the face (eyes and shadows stay dark). Each window has its own fixed random switch-on level, so the portrait is a dither of lit windows; time smoothing keeps them from flickering. A few random lights elsewhere keep the block alive.
 - Settings: windows across, window height / width, person edge, face detail, threshold, contrast, random spread, lights elsewhere, invert, time smoothing, warm / cool, glow, facade brightness.
 - Needs the depth model (loads on start, like Depth). Tested on a recorded clip only, not a live camera.
+
+## Windows on a photographed block (v2.50)
+
+- The Windows view now uses a generated night photograph of an apartment block (`windows/bg.webp`, 768 x 1376) instead of a drawn facade. The window positions were found once offline (18 columns by 31 rows, 510 windows; the lattice was fitted to the detected windows and each cell takes the detected window or a typical one); `windows/win.json` lists them and `windows/id.png` marks which window every pixel belongs to. Windows that were lit in the photograph were swapped for dark ones from the same building.
+- Each frame, the person (depth model) and the tone inside the person decide a light level for every window; the shader fills lit windows with warm or cool light, keeps frames and bars as dark silhouettes, and adds a halo on the wall.
+- The offline step is `camera-motion/win/build.py` (local, not in the repo). Replacing the picture means re-running it.
+- Tested on a recorded clip only.
