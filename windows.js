@@ -17,7 +17,8 @@ const SLIDERS = [
   { id: 'wsm', label: 'Time smoothing', min: 0, max: 0.95, step: 0.01, val: 0.6, off: 'none' },
   { head: 'Look' },
   { id: 'wwarm', label: 'Warm / cool light', min: 0, max: 1, step: 0.01, val: 0.85, off: 'all cool white' },
-  { id: 'wgl', label: 'Glow', min: 0, max: 1, step: 0.01, val: 0.5, off: 'none' },
+  { id: 'wgl', label: 'Glow', min: 0, max: 2, step: 0.01, val: 0.9, off: 'none' },
+  { id: 'wgs', label: 'Glow spread (tight to wide)', min: 0, max: 1, step: 0.01, val: 0.5, off: 'tight only' },
   { id: 'wdim', label: 'Facade brightness', min: 0, max: 2.5, step: 0.01, val: 1.15, off: 'black' },
 ];
 const P = {};
@@ -36,33 +37,52 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D bgT, idT, litT;                        // the photograph, the window id of each pixel, the light level of each window
-uniform vec2 bgSize;
-uniform float warm, glow, dim;
+uniform sampler2D bgT, idT, litT, rectT, atlasT;          // the photograph, window id per pixel, light level per window, window rectangles (uv), real lit-window textures
+uniform sampler2D g1, g2, g3;                             // three blur levels of the emitted light: tight, medium, wide
+uniform float warm, glow, spread, dim, mode, atlasN, acols, arows;   // mode 0: only the light of the windows (for the glow), mode 1: the final picture
 float h11(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 int idAt(vec2 q) { vec4 c = texture(idT, q); return int(c.r * 255.0 + 0.5) + 256 * int(c.g * 255.0 + 0.5); }
 float levelOf(int id) { return id == 0 ? 0.0 : texelFetch(litT, ivec2(id & 255, id >> 8), 0).r; }
+vec3 emit(vec2 q, out float mask) {                       // the light of the window under q: its own real lit texture (frames, curtains, falloff), tinted warm or cool
+  mask = 0.0; int id = idAt(q); float lv = levelOf(id);
+  if (id == 0 || lv <= 0.0) return vec3(0.0);
+  vec4 rc = texelFetch(rectT, ivec2(id & 255, id >> 8), 0);
+  vec2 loc = clamp((q - rc.xy) / rc.zw, 0.0, 1.0);
+  float fid = float(id);
+  if (h11(fid + 2.2) > 0.5) loc.x = 1.0 - loc.x;
+  int ai = int(floor(h11(fid + 1.3) * atlasN));
+  vec2 cell = vec2(float(ai % int(acols)), float(ai / int(acols)));
+  vec3 a = texture(atlasT, (cell + clamp(loc * 0.94 + 0.03, 0.0, 1.0)) / vec2(acols, arows)).rgb;
+  float l = luma(a);
+  vec3 warmC = mix(vec3(1.0, 0.80, 0.52), vec3(1.0, 0.58, 0.30), h11(fid + 7.7)), coolC = vec3(0.80, 0.91, 1.0);
+  vec3 lc = h11(fid) < warm ? warmC : coolC;
+  vec3 hue = a / max(max(a.r, max(a.g, a.b)), 0.06);
+  vec3 tint = mix(lc, hue, 0.30);
+  mask = 1.0;
+  return tint * clamp(l / 0.42, 0.0, 1.6) * lv * 1.4;
+}
 void main() {
+  float m; vec3 e = emit(uv, m);
+  if (mode < 0.5) { o = vec4(e, 1.0); return; }
   vec3 base = texture(bgT, uv).rgb * dim;
-  int id = idAt(uv); float lv = levelOf(id);
-  vec3 col = base;
-  if (id > 0 && lv > 0.0) {
-    float r1 = h11(float(id)), r2 = h11(float(id) + 7.7);
-    vec3 warmC = mix(vec3(1.0, 0.80, 0.52), vec3(1.0, 0.58, 0.30), r2), coolC = vec3(0.80, 0.91, 1.0);
-    vec3 lc = mix(coolC, warmC, r1 < warm ? 1.0 : 0.0);
-    float frame = smoothstep(0.16, 0.34, luma(base / max(dim, 0.01)));       // bright frames and bars of the picture stay as dark silhouettes against the light
-    col = base * 0.15 + lc * lv * (1.05 - 0.85 * frame);
-  } else if (glow > 0.0) {                                   // halo on the wall around a lit window
-    float h = 0.0, rr = 7.0 / bgSize.x;
-    for (int k = 0; k < 8; k++) {
-      float a = float(k) * 0.7853982; vec2 d = vec2(cos(a), sin(a) * bgSize.x / bgSize.y) * rr;
-      int j = idAt(uv + d); if (j > 0) h = max(h, levelOf(j));
-      j = idAt(uv + d * 2.0); if (j > 0) h = max(h, levelOf(j) * 0.55);
-    }
-    col += vec3(1.0, 0.72, 0.45) * h * glow * 0.20;
-  }
-  o = vec4(pow(col, vec3(0.95)), 1.0);
+  vec2 gq = vec2(uv.x, 1.0 - uv.y);
+  float w1 = 1.0 - 0.6 * spread, w2 = 0.35 + 0.65 * spread, w3 = 0.15 + 0.85 * spread;
+  vec3 gl = (texture(g1, gq).rgb * w1 + texture(g2, gq).rgb * w2 + texture(g3, gq).rgb * w3) * glow;
+  vec3 col = base * (1.0 - 0.82 * m) + e + gl * (1.0 - 0.5 * m);
+  o = vec4(pow(clamp(col, 0.0, 4.0), vec3(0.95)), 1.0);
+}`;
+const VS2 = `#version 300 es
+in vec2 p; out vec2 vt; void main() { vt = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
+const FSB = `#version 300 es
+precision highp float;
+in vec2 vt; out vec4 o; uniform sampler2D src; uniform vec2 dir;                    // dir (0,0) = plain copy (a linear down-sample)
+void main() {
+  if (dir.x == 0.0 && dir.y == 0.0) { o = texture(src, vt); return; }
+  vec4 s = texture(src, vt) * 0.227027;
+  s += (texture(src, vt + dir * 1.0) + texture(src, vt - dir * 1.0)) * 0.1945946; s += (texture(src, vt + dir * 2.0) + texture(src, vt - dir * 2.0)) * 0.1216216;
+  s += (texture(src, vt + dir * 3.0) + texture(src, vt - dir * 3.0)) * 0.054054;  s += (texture(src, vt + dir * 4.0) + texture(src, vt - dir * 4.0)) * 0.016216;
+  o = s;
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -73,31 +93,47 @@ function prog(vs, fs) {
   }
   gl.linkProgram(p); return p;
 }
-const pr = prog(VS, FS); gl.useProgram(pr);
+const pr = prog(VS, FS), pb = prog(VS2, FSB);
 {
   const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  for (const q of [pr, pb]) { gl.useProgram(q); const loc = gl.getAttribLocation(q, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); }
 }
-const U = {}; for (const n of ['bgT', 'idT', 'litT', 'bgSize', 'warm', 'glow', 'dim']) U[n] = gl.getUniformLocation(pr, n);
+gl.useProgram(pr);
+const U = {}; for (const n of ['bgT', 'idT', 'litT', 'rectT', 'atlasT', 'g1', 'g2', 'g3', 'warm', 'glow', 'spread', 'dim', 'mode', 'atlasN', 'acols', 'arows']) U[n] = gl.getUniformLocation(pr, n);
+const UB = { src: gl.getUniformLocation(pb, 'src'), dir: gl.getUniformLocation(pb, 'dir') };
+gl.getExtension('EXT_color_buffer_float');
 const mkTex = (unit, filter) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-const tBg = mkTex(0, gl.LINEAR), tId = mkTex(1, gl.NEAREST), tLit = mkTex(2, gl.NEAREST);
-gl.uniform1i(U.bgT, 0); gl.uniform1i(U.idT, 1); gl.uniform1i(U.litT, 2); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+const tBg = mkTex(0, gl.LINEAR), tId = mkTex(1, gl.NEAREST), tLit = mkTex(2, gl.NEAREST), tRect = mkTex(3, gl.NEAREST), tAtlas = mkTex(4, gl.LINEAR);
+for (const [n, i] of [['bgT', 0], ['idT', 1], ['litT', 2], ['rectT', 3], ['atlasT', 4], ['g1', 5], ['g2', 6], ['g3', 7]]) gl.uniform1i(U[n], i);
+gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+// light and blur targets: E = the light of the windows (540 x 960), then three blurred levels at half, quarter and eighth of that
+const mkRT = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); return { t, f, w, h }; };
+const RT = { E: mkRT(540, 960) };
+RT.L = [[270, 480], [135, 240], [68, 120]].map(([w, h]) => ({ a: mkRT(w, h), b: mkRT(w, h) }));
+gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
 // ---------------------------------------------------------------- the picture of the block and its window list
-let WINS = [], BW = 768, BH = 1376, ready = false;
+let WINS = [], BW = 768, BH = 1376, ready = false, AT = { cols: 10, rows: 4, n: 39 };
 const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('missing ' + src)); i.src = src + '?b=' + document.querySelector('meta[name=build]').content; });
 async function loadBlock() {
   try {
-    const [bg, idi, js] = await Promise.all([loadImg('windows/bg.webp'), loadImg('windows/id.png'), fetch('windows/win.json').then((r) => r.json())]);
-    WINS = js.wins; BW = js.w; BH = js.h;
+    const [bg, idi, atl, js] = await Promise.all([loadImg('windows/bg.webp'), loadImg('windows/id.png'), loadImg('windows/atlas.png'), fetch('windows/win.json').then((r) => r.json())]);
+    WINS = js.wins; BW = js.w; BH = js.h; AT = js.atlas;
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tBg); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bg);
     const c = document.createElement('canvas'); c.width = idi.width; c.height = idi.height; const x = c.getContext('2d', { willReadFrequently: true });
     x.drawImage(idi, 0, 0); const px = x.getImageData(0, 0, c.width, c.height);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tId); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, c.width, c.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(px.data.buffer));
-    gl.uniform2f(U.bgSize, BW, BH); ready = true;
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, tAtlas); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atl);
+    const wdt = 256, hgt = Math.ceil((WINS.length + 1) / wdt), rc = new Float32Array(wdt * hgt * 4);   // window rectangles in picture uv: x, y, w, h
+    WINS.forEach(([x, y, w, h], k) => rc.set([x / BW, y / BH, w / BW, h / BH], (k + 1) * 4));
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, tRect); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, wdt, hgt, 0, gl.RGBA, gl.FLOAT, rc);
+    ready = true;
   } catch (e) { msg('Windows: ' + e.message); }
 }
 
@@ -151,11 +187,24 @@ function uploadLevels() {
   gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tLit);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, wdt, hgt, 0, gl.RED, gl.UNSIGNED_BYTE, u8); litUp = false;
 }
+function blurLevel(src, lv) {                                // copy (linear down-sample) into the level, then a horizontal and a vertical blur
+  gl.useProgram(pb); gl.uniform1i(UB.src, 8); gl.activeTexture(gl.TEXTURE8);   // its own unit, so the picture textures stay bound
+  const { a, b } = lv;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, a.f); gl.viewport(0, 0, a.w, a.h); gl.bindTexture(gl.TEXTURE_2D, src); gl.uniform2f(UB.dir, 0, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, b.f); gl.bindTexture(gl.TEXTURE_2D, a.t); gl.uniform2f(UB.dir, 1.2 / a.w, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, a.f); gl.bindTexture(gl.TEXTURE_2D, b.t); gl.uniform2f(UB.dir, 0, 1.2 / a.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
 function render() {
   if (!ready || !tone) return;
   if (litUp) uploadLevels();
-  gl.uniform1f(U.warm, num('wwarm', 0.85)); gl.uniform1f(U.glow, num('wgl', 0.5)); gl.uniform1f(U.dim, num('wdim', 1.15));
-  gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.useProgram(pr);
+  gl.uniform1f(U.warm, num('wwarm', 0.85)); gl.uniform1f(U.glow, num('wgl', 0.9)); gl.uniform1f(U.spread, num('wgs', 0.5)); gl.uniform1f(U.dim, num('wdim', 1.15));
+  gl.uniform1f(U.atlasN, AT.n); gl.uniform1f(U.acols, AT.cols); gl.uniform1f(U.arows, AT.rows);
+  gl.uniform1f(U.mode, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, RT.E.f); gl.viewport(0, 0, RT.E.w, RT.E.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);   // the light alone
+  blurLevel(RT.E.t, RT.L[0]); blurLevel(RT.L[0].a.t, RT.L[1]); blurLevel(RT.L[1].a.t, RT.L[2]);                                              // three levels of blur
+  gl.useProgram(pr); gl.uniform1f(U.mode, 1);
+  for (let i = 0; i < 3; i++) { gl.activeTexture(gl.TEXTURE5 + i); gl.bindTexture(gl.TEXTURE_2D, RT.L[i].a.t); }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
 let frames = 0, ms = 0, t0 = performance.now(), fps = 0;

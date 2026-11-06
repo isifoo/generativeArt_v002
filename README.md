@@ -144,3 +144,8 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 - Each frame, the person (depth model) and the tone inside the person decide a light level for every window; the shader fills lit windows with warm or cool light, keeps frames and bars as dark silhouettes, and adds a halo on the wall.
 - The offline step is `camera-motion/win/build.py` (local, not in the repo). Replacing the picture means re-running it.
 - Tested on a recorded clip only.
+
+## Real window textures and layered glow (v2.51)
+
+- A lit window now shows the texture of a real lit window: the 39 windows of the photograph that were drawn with their light on are kept as small textures (`windows/atlas.png`: curtains, frames, mullions, the fall of the light), and every lit window takes one of them (picked and flipped by its own number), mapped exactly onto that window's rectangle (`rectT`) and tinted warm or cool. Frames and bars stay dark against the light.
+- Glow is a separate layer: the light of the windows is drawn alone, blurred in three levels (about 8, 32 and 64 px at output size, each a down-sample plus a horizontal and a vertical pass) and added back. Settings: Glow and Glow spread (tight to wide).
