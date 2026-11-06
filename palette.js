@@ -18,6 +18,8 @@ export const PRESETS = {                                      // dark, middle, l
   blueorange: { label: 'Orange on blue', cols: ['#e07a2c', '#e8c26a', '#3f7fc4'], paper: '#f6f3ee' },
   bw: { label: 'Black / white', cols: ['#1e1e1e', '#7a7a7a', '#cfcfcf'], paper: '#f7f6f4' },
   red: { label: 'Red tones', cols: ['#a8200f', '#e0573c', '#f3b2a2'], paper: '#fbf8f6' },
+  electric: { label: 'Electric blue and white (Letters)', cols: ['#0a2cff', '#6f86ff', '#ffffff'], paper: '#ffffff' },
+  nightlights: { label: 'Night windows (yellow lights)', cols: ['#0e1520', '#f0a030', '#ffc860'], paper: '#fff0cc' },
   ink: { label: 'Ink on paper (V1 Line)', cols: ['#d23219', '#e5866f', '#f2c9bd'], paper: '#f2f0ee' },
 };
 

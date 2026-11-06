@@ -9,7 +9,7 @@
 //           difference of blurs (a spot darker than its surroundings at 'Feature size' = a feature: eye lines, lashes, brows,
 //           nostrils, lips) -> soft threshold; plus 'Solid blacks' for the deepest darks. Drawn in the same shader pass.
 // + Duplicate level copies the last level into a new one (up to 6). Click a node: Edit shows that node's settings only.
-import { $, vid, cam, VIEW, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
+import { $, vid, cam, VIEW, rows, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
 import { createDepthModel } from './depthmodel.js';
 
 const OW = 1080, OH = 1920, MAXL = 6;
@@ -23,7 +23,8 @@ let dirty = true;                                          // settings changed: 
 const LOOK = { thin: 0, amp: 86.5, len: 1090, drift: 0.06, con: 1.3, bri: 0, smooth: 0.6 };
 const pad = (k) => String(k).padStart(2, '0');
 const SLIDERS = [{ head: 'Master' }, { id: 'mspc', label: 'Spacing px', min: 3, max: 60, step: 0.5, val: 15, off: '15' },
-  { id: 'mmot', label: 'Motion speed', min: 0, max: 0.5, step: 0.005, val: 0, off: 'still' }];   // the waves drift; 0 = still
+  { id: 'mmot', label: 'Motion speed', min: 0, max: 0.5, step: 0.005, val: 0, off: 'still' },
+  { id: 'mpal', label: 'Palette colours (1 = on)', min: 0, max: 1, step: 1, val: 1, off: 'black on white' }];   // the waves drift; 0 = still
 for (let k = 1; k <= MAXL; k++) SLIDERS.push(
   { head: `Level${pad(k)} Lines` },
   ...(V2 ? [
@@ -229,7 +230,9 @@ float HV = 255.0, HAA = 1.0, BV = 255.0, BAA = 1.0;      // this pixel's Hope / 
 uniform sampler2D vidT;                                  // the camera, greyscale on the GPU, with mipmaps (blurs for free)
 uniform sampler2D strokeT;                               // Live strokes: the traced brush strokes (ink 1 = black), drawn by the GPU from the worker's geometry
 uniform float ovMode;                                    // 1 = the Overlay is the live strokes, 0 = the delicate features
-uniform vec4 ovP, ovQ;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
+uniform vec4 ovP, ovQ;
+uniform vec3 inkC, paperC;                               // the palette: the dark colour is the ink, the paper colour the paper
+uniform float palOn;                                   // overlay: strength, contrast, threshold, softness | fine lod, coarse lod, solid blacks, on
 uniform int Lsrc[${MAXL}];                               // matte per level: 0 Map, 1 Overlay, 2 Flip
 uniform float flipN;
 uniform vec2 flipR;
@@ -386,7 +389,9 @@ void main() {
   else if (mode == 2 && (Lhide[solo] & 1) != 0) v = 1.0;  // level thumbnail: its Lines are hidden
   else v = 1.0 - level(solo, px, dk, L, aa, mode == 2);
   if (pxs > 4.0) v = pow(v, 4.0);                         // node thumbnails: darker, so the shapes read at that size
-  o = vec4(vec3(v), 1.0);                                 // pure black ink on pure white paper
+  vec3 colr = vec3(v);                                    // the picture: ink on paper; the node thumbnails stay plain greys
+  if (palOn > 0.5 && pxs <= 4.0 && (mode == 0 || mode == 7)) colr = mix(inkC, paperC, v);
+  o = vec4(colr, 1.0);
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -401,7 +406,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
 const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'hopeA', 'hopeB', 'hopeMix', 'hopeN', 'hopeEdge', 'bMode', 'bMix', 'ovP', 'ovQ', 'strokeT', 'ovMode', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['toneT', 'shapeT', 'detT', 'vidT', 'hopeA', 'hopeB', 'hopeMix', 'hopeN', 'hopeEdge', 'bMode', 'bMix', 'ovP', 'ovQ', 'strokeT', 'ovMode', 'inkC', 'paperC', 'palOn', 'res', 'sp', 'evo', 'pxs', 'nL', 'solo', 'mode', 'Lp', 'Lt', 'Lwv', 'mapP', 'flipN', 'flipR', 'flipX', 'flipT', 'Lsoft', 'Le', 'Linv', 'Lmask', 'Lhide', 'Lshow', 'Lsrc']) U[n] = gl.getUniformLocation(pr, n);
 const tex = (unit, name) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -463,7 +468,9 @@ function pumpStrokes(now) {                                // the camera picture
   for (let i = 0, j = 0; i < L.length; i++, j += 4) L[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
   strokeW.postMessage({ L }, [L.buffer]);
 }
+const cpal = (c) => c.map((x) => x / 255);
 function ovUniforms() {
+  { const pl = getPalette(); gl.uniform3fv(U.inkC, cpal(pl.cols[0])); gl.uniform3fv(U.paperC, cpal(pl.paper)); gl.uniform1f(U.palOn, num('mpal', 1) >= 0.5 ? 1 : 0); }
   gl.uniform1f(U.ovMode, V2 && DEPTHLOOK ? 2 : strokesOn() ? 1 : 0);
   const lod = (px) => Math.max(0, Math.log2(Math.max(1, px / (OW / VW))));
   gl.uniform4f(U.ovP, num('ovs', 0), num('ovc', 12), num('ovt', 0), Math.max(0.02, num('ovf', 0.02)));
@@ -790,6 +797,7 @@ initDefaults('.r13');
 // Live strokes: turning it on also turns the Overlay Strength up (it is 0 in Lines V2), and ?strokes opens the page with only the strokes showing
 if (new URLSearchParams(location.search).has('strokes')) { solo.add('OV'); dirty = true; }
 ovStyle();                                      // r13: levels (Level01..06) into the Master (v2.13)
+onPalette(() => { dirty = true; });
 window.__state = { P, tone, shape, nLevels, addLevel, removeLevel, canvas, LOOK, solo, ovOn, hopeMix: () => (hopeUpd() ? ease(Math.min(1, (performance.now() - hT0) / 500)) : 1) };
 requestAnimationFrame(loop);
 versionCheck();

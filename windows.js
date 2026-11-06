@@ -2,7 +2,8 @@
 // windows/win.json lists every window (found once, offline) and windows/id.png says which window each pixel belongs to. Each window's light is a solid yellow
 // laid over its own area in Screen mode, so the photograph's frames and curtains stay; the brightness of the camera under that window drives how strong the light is
 // (dark = a dim light, bright = a strong light). The depth model can fade the background so the person stands out. The light is also blurred in three levels for the glow.
-import { $, msg, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover } from './ui.js';
+import { $, msg, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
+import { loadPreset } from './palette.js';
 import { createDepthModel } from './depthmodel.js';
 
 const SLIDERS = [
@@ -19,7 +20,8 @@ const SLIDERS = [
   { id: 'wbgf', label: 'Fade the background (depth)', min: 0, max: 1, step: 0.01, val: 0.85, off: 'whole picture' },
   { id: 'wfg', label: 'Person edge (depth)', min: 0.1, max: 0.9, step: 0.01, val: 0.5, off: '0.5' },
   { head: 'Look' },
-  { id: 'wwarm', label: 'Yellow / cool white', min: 0, max: 1, step: 0.01, val: 0.9, off: 'all cool white' },
+  { id: 'wpal', label: 'Light colours from the palette (1 = on)', min: 0, max: 1, step: 1, val: 1, off: 'built-in yellow and cool white' },
+  { id: 'wwarm', label: 'Warm / cool mix', min: 0, max: 1, step: 0.01, val: 0.9, off: 'all cool white' },
   { id: 'wgl', label: 'Glow', min: 0, max: 2, step: 0.01, val: 0.7, off: 'none' },
   { id: 'wgs', label: 'Glow spread (tight to wide)', min: 0, max: 1, step: 0.01, val: 0.5, off: 'tight only' },
   { id: 'wdim', label: 'Facade brightness', min: 0, max: 2.5, step: 0.01, val: 1.15, off: 'black' },
@@ -42,7 +44,8 @@ precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D bgT, idT, litT, rectT;                  // the photograph, window id per pixel, light level per window, window rectangles (uv)
 uniform sampler2D g1, g2, g3;                             // three blur levels of the emitted light: tight, medium, wide
-uniform float warm, glow, spread, dim, mode;              // mode 0: only the light of the windows (for the glow), mode 1: the final picture
+uniform float warm, glow, spread, dim, mode;
+uniform vec3 yelA, yelB, coolC;                           // the light colours (the palette's, or the built-in yellow and cool white)              // mode 0: only the light of the windows (for the glow), mode 1: the final picture
 float h11(float n) { return fract(sin(n * 12.9898) * 43758.5453); }
 int idAt(vec2 q) { vec4 c = texture(idT, q); return int(c.r * 255.0 + 0.5) + 256 * int(c.g * 255.0 + 0.5); }
 vec3 emit(vec2 q) {                                       // a solid yellow (or cool white) over the window's area, as strong as its level
@@ -53,8 +56,8 @@ vec3 emit(vec2 q) {                                       // a solid yellow (or 
   vec2 loc = clamp((q - rc.xy) / rc.zw, 0.0, 1.0);
   float edge = smoothstep(0.0, 0.07, min(min(loc.x, 1.0 - loc.x), min(loc.y, 1.0 - loc.y)));
   float fid = float(id);
-  vec3 yel = mix(vec3(1.0, 0.80, 0.42), vec3(1.0, 0.64, 0.28), h11(fid + 7.7)), cool = vec3(0.82, 0.92, 1.0);
-  return (h11(fid) < warm ? yel : cool) * lv * edge;
+  vec3 yel = mix(yelA, yelB, h11(fid + 7.7));
+  return (h11(fid) < warm ? yel : coolC) * lv * edge;
 }
 void main() {
   vec3 e = emit(uv);
@@ -95,7 +98,7 @@ const pr = prog(VS, FS), pb = prog(VS2, FSB);
   for (const q of [pr, pb]) { gl.useProgram(q); const loc = gl.getAttribLocation(q, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0); }
 }
 gl.useProgram(pr);
-const U = {}; for (const n of ['bgT', 'idT', 'litT', 'rectT', 'g1', 'g2', 'g3', 'warm', 'glow', 'spread', 'dim', 'mode']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['bgT', 'idT', 'litT', 'rectT', 'g1', 'g2', 'g3', 'warm', 'glow', 'spread', 'dim', 'mode', 'yelA', 'yelB', 'coolC']) U[n] = gl.getUniformLocation(pr, n);
 const UB = { src: gl.getUniformLocation(pb, 'src'), dir: gl.getUniformLocation(pb, 'dir') };
 gl.getExtension('EXT_color_buffer_float');
 const mkTex = (unit, filter) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
@@ -188,10 +191,20 @@ function blurLevel(src, lv) {                                // copy (linear dow
   gl.bindFramebuffer(gl.FRAMEBUFFER, b.f); gl.bindTexture(gl.TEXTURE_2D, a.t); gl.uniform2f(UB.dir, 1.2 / a.w, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, a.f); gl.bindTexture(gl.TEXTURE_2D, b.t); gl.uniform2f(UB.dir, 0, 1.2 / a.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
+// the first time this style is opened it gets the night-window palette; after that the palette is yours (it is shared by every style)
+try { if (!localStorage.getItem('pal-windows')) { loadPreset('nightlights'); localStorage.setItem('pal-windows', '1'); } } catch {}
+let pal = getPalette(); onPalette((p) => { pal = p; litUp = true; });
+const rgb = (a) => a.map((x) => x / 255);
+function lightColours() {
+  if (num('wpal', 1) < 0.5) return [[1.0, 0.80, 0.42], [1.0, 0.64, 0.28], [0.82, 0.92, 1.0]];
+  const light = rgb(pal.cols[pal.cols.length - 1]), mid = pal.n === 3 ? rgb(pal.cols[1]) : light.map((x) => x * 0.8);
+  return [light, mid, rgb(pal.paper)];
+}
 function render() {
   if (!ready || !tone) return;
   if (litUp) uploadLevels();
   gl.useProgram(pr);
+  { const [a, b, c] = lightColours(); gl.uniform3fv(U.yelA, a); gl.uniform3fv(U.yelB, b); gl.uniform3fv(U.coolC, c); }
   gl.uniform1f(U.warm, num('wwarm', 0.9)); gl.uniform1f(U.glow, num('wgl', 0.9)); gl.uniform1f(U.spread, num('wgs', 0.5)); gl.uniform1f(U.dim, num('wdim', 1.15));
   gl.uniform1f(U.mode, 0); gl.bindFramebuffer(gl.FRAMEBUFFER, RT.E.f); gl.viewport(0, 0, RT.E.w, RT.E.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);   // the light alone
   blurLevel(RT.E.t, RT.L[0]); blurLevel(RT.L[0].a.t, RT.L[1]); blurLevel(RT.L[1].a.t, RT.L[2]);                                              // three levels of blur

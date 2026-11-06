@@ -15,7 +15,8 @@ export const VERSIONS = [
   { id: 'depth3d', label: 'Depth 3D' },
   { id: 'dollar5', label: 'Dollar 5' },                         // node based line levels, the depth map as the matte (lines.js)
   { id: 'linesv2', label: 'Lines V2' },
-  { id: 'windows', label: 'Windows' },                           // a night apartment block: the person is the lit windows (windows.js)                         // horizontal sine lines (Frequency, Amplitude) on the Dollar 5 nodes (lines.js)
+  { id: 'windows', label: 'Windows' },
+  { id: 'letters', label: 'Letters' },                           // the camera as type on a grid, like the Coinbase / Buck piece (letters.js)                           // a night apartment block: the person is the lit windows (windows.js)                         // horizontal sine lines (Frequency, Amplitude) on the Dollar 5 nodes (lines.js)
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
