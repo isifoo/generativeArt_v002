@@ -38,8 +38,8 @@ const val = buildSliders(SLIDERS, P);
 const num = (id, d) => (P.on[id] === false ? d : P[id]);
 let ramp = 'coinbase';
 
-// the first time this style is opened it gets the electric blue palette; after that the palette is yours (it is shared by every style)
-try { if (!localStorage.getItem('pal-letters')) { loadPreset('electric'); localStorage.setItem('pal-letters', '1'); } } catch {}
+// this style opens with the electric blue palette (the palette is shared by every style; a saved default replaces it)
+loadPreset('electric');   // saved defaults (Save as default) are restored later by initDefaults and win
 
 let depthNew = false, depthOn = false;
 const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : def), () => { depthNew = true; });

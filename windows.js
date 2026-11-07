@@ -191,8 +191,8 @@ function blurLevel(src, lv) {                                // copy (linear dow
   gl.bindFramebuffer(gl.FRAMEBUFFER, b.f); gl.bindTexture(gl.TEXTURE_2D, a.t); gl.uniform2f(UB.dir, 1.2 / a.w, 0); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, a.f); gl.bindTexture(gl.TEXTURE_2D, b.t); gl.uniform2f(UB.dir, 0, 1.2 / a.h); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
-// the first time this style is opened it gets the night-window palette; after that the palette is yours (it is shared by every style)
-try { if (!localStorage.getItem('pal-windows')) { loadPreset('nightlights'); localStorage.setItem('pal-windows', '1'); } } catch {}
+// this style opens with the night-window palette (the palette is shared by every style; a saved default replaces it)
+loadPreset('nightlights');   // saved defaults (Save as default) are restored later by initDefaults and win
 let pal = getPalette(); onPalette((p) => { pal = p; litUp = true; });
 const rgb = (a) => a.map((x) => x / 255);
 function lightColours() {
