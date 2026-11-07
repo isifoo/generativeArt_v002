@@ -48,6 +48,11 @@ td { padding:2px 0; } td:last-child { text-align:right; }
             background:#181818f2; border:1px solid var(--line); border-radius:6px; padding:12px 14px; z-index:5; box-shadow:0 8px 30px #0008;
             transform:translateX(calc(100% + 24px)); visibility:hidden; transition:transform var(--slide) var(--ease), visibility 0s var(--slide); }
 body.editing #settings { transform:none; visibility:visible; transition:transform var(--slide) var(--ease), visibility 0s; }
+/* wide screens: the frame stays centred and the settings sit right next to it, on its right */
+@media (min-aspect-ratio: 1/1) and (min-width: 900px) {
+  #settings { left:calc(50% + var(--stagew, 360px) / 2 + 20px); right:auto; width:min(460px, calc(50vw - var(--stagew, 360px) / 2 - 36px)); transform:translateX(-24px); opacity:0; transition:transform var(--slide) var(--ease), opacity var(--slide) var(--ease), visibility 0s var(--slide); }
+  body.editing #settings { transform:none; opacity:1; transition:transform var(--slide) var(--ease), opacity var(--slide) var(--ease), visibility 0s; }
+}
 #settings .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
 #settings .head button { padding:2px 9px; }
 .cols, .sl { display:grid; grid-template-columns:118px 1fr 44px 58px 34px; gap:8px; align-items:center; }

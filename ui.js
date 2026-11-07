@@ -99,13 +99,13 @@ export function buildSliders(list, P) {
 
 // ---------------------------------------------------------------- Edit button (closed by default: clean for viewing; the panel slides in)
 const UIKEY = 'genArt002.ui';
-// when editing, the portrait glides to the left edge so the panel has room (on narrow screens the panel just covers it)
+// the frame stays in the centre; on wide screens the settings panel sits right next to it, on its right (--stagew is the frame's width)
 const shift = () => {
-  const st = $('#stage'), w = st.offsetWidth, panel = $('#settings').offsetWidth;
-  const left = (innerWidth - w) / 2, room = innerWidth - panel - 48;
-  document.body.style.setProperty('--shift', (w <= room ? 16 - left : 0) + 'px');
+  document.body.style.setProperty('--stagew', $('#stage').offsetWidth + 'px');
+  document.body.style.setProperty('--shift', '0px');
 };
 addEventListener('resize', shift);
+new ResizeObserver(shift).observe($('#stage'));
 const setOpen = (open) => {
   shift(); document.body.classList.toggle('editing', open); $('#setbtn').classList.toggle('on', open);
   try { localStorage.setItem(UIKEY, open ? '1' : '0'); } catch {}
