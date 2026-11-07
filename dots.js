@@ -48,6 +48,7 @@ if (!gl) msg('WebGL2 is not available in this browser.');
 
 // the drones are points: the vertex shader reads the depth of its lattice cell, places the point in 3D, and projects it; the fragment shader draws the soft round dot
 const VS = `#version 300 es
+precision highp float; precision highp sampler2D;
 in vec2 cellIJ; in vec3 rnd;
 uniform sampler2D dep, depPrev;
 uniform vec2 res; uniform vec2 grid; uniform float vpw, bt, time;
@@ -126,12 +127,21 @@ const quadVao = gl.createVertexArray(); gl.bindVertexArray(quadVao); gl.enableVe
 const U = {}; for (const n of ['dep', 'depPrev', 'res', 'grid', 'vpw', 'bt', 'time', 'thr', 'soft', 'dcon', 'inv', 'size', 'bri', 'jit', 'hov', 'tw', 'sky', 'zamt', 'persp', 'yaw', 'pitch', 'c0', 'c1', 'c2']) U[n] = gl.getUniformLocation(pDot, n);
 const UB = { src: gl.getUniformLocation(pb, 'src'), dir: gl.getUniformLocation(pb, 'dir') };
 const UF = {}; for (const n of ['g1', 'g2', 'g3', 'pts', 'paper', 'glow', 'spread']) UF[n] = gl.getUniformLocation(pFin, n);
-gl.getExtension('EXT_color_buffer_float');
+gl.getExtension('EXT_color_buffer_float'); gl.getExtension('EXT_color_buffer_half_float'); gl.getExtension('OES_texture_float_linear');
+// iPad / iPhone Safari can refuse a half float render target: test one, and fall back to plain 8 bit targets (the glow is a little less bright, but it draws)
+let RTF = { i: gl.RGBA16F, t: gl.HALF_FLOAT, name: 'half float' };
+{
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.getError(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, 4, 4, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  if (gl.getError() !== 0 || gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) RTF = { i: gl.RGBA8, t: gl.UNSIGNED_BYTE, name: '8 bit' };
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(f); gl.deleteTexture(t);
+}
+let depth8 = false;                                                       // depth upload: 16 bit float first, 8 bit if the device refuses it
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
 const tDep = mkTex(0), tPrev = mkTex(1);
-const mkRT = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+const mkRT = (w, h) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, RTF.i, w, h, 0, gl.RGBA, RTF.t, null);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); return { t, f, w, h }; };
@@ -164,13 +174,16 @@ function drawDots(target, vpw) {                             // all the drones, 
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
   gl.uniform1f(U.vpw, vpw); gl.drawArrays(gl.POINTS, 0, nDots); gl.disable(gl.BLEND);
 }
+function putDepth(tex, unit, arr) {
+  gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex);
+  if (!depth8) { gl.getError(); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, arr); if (gl.getError() === 0) return; depth8 = true; }
+  const u = new Uint8Array(M.w * M.h); for (let i = 0; i < u.length; i++) u[i] = Math.max(0, Math.min(255, arr[i] * 255 + 0.5));
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, M.w, M.h, 0, gl.RED, gl.UNSIGNED_BYTE, u);
+}
 function render() {
   if (!M.have) { gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, OW, OH); const p = rgb(pal.paper); gl.clearColor(p[0] * 0.9, p[1] * 0.9, p[2] * 0.9, 1); gl.clear(gl.COLOR_BUFFER_BIT); return; }
   const cols = Math.round(num('ddcol', 72)); if (cols !== gcols) buildDots(cols);
-  if (upload) {
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tDep); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.out);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tPrev); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, M.w, M.h, 0, gl.RED, gl.FLOAT, M.prevOut); upload = false;
-  }
+  if (upload) { putDepth(tDep, 0, M.out); putDepth(tPrev, 1, M.prevOut || M.out); upload = false; }
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tDep); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tPrev);
   gl.useProgram(pDot); gl.uniform1i(U.dep, 0); gl.uniform1i(U.depPrev, 1);
   const cs = pal.cols, c0 = rgb(cs[0]), c2 = rgb(cs[cs.length - 1]), c1 = cs.length === 3 ? rgb(cs[1]) : c0.map((x, i) => (x + c2[i]) / 2), t = performance.now() / 1000;
@@ -202,7 +215,7 @@ function loop() {
 setInterval(() => {
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $('#stats').innerHTML = row('drones', `${gcols} x ${grows} = ${nDots}`) + row('runs on', M.ready ? (M.ep === 'webgpu' ? 'GPU (WebGPU)' : 'processor (WASM, slow)') : M.loading ? 'loading...' : '-') +
-    row('model time per frame', M.ms.toFixed(1) + ' ms') + row('depth maps per second', M.fps.toFixed(1)) + row('frames per second', fps.toFixed(0));
+    row('model time per frame', M.ms.toFixed(1) + ' ms') + row('depth maps per second', M.fps.toFixed(1)) + row('frames per second', fps.toFixed(0)) + row('glow buffers / depth', RTF.name + ' / ' + (depth8 ? '8 bit' : '16 bit'));
   $('#budget').style.width = Math.min(100, M.ms / 33.3 * 100) + '%';
 }, 500);
 cam.onStart = () => { lastMedia = -1; };

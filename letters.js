@@ -25,11 +25,15 @@ const SLIDERS = [
   { id: 'lwht', label: 'White point', min: 0.1, max: 1, step: 0.005, val: 0.85, off: '0.85' },
   { id: 'lgam', label: 'Contrast curve (gamma)', min: 0.3, max: 3, step: 0.01, val: 1.2, off: '1.2' },
   { id: 'linv', label: 'Invert (1 = dense where it is dark)', min: 0, max: 1, step: 1, val: 0, off: '0' },
-  { id: 'lsm', label: 'Time smoothing', min: 0, max: 0.95, step: 0.01, val: 0.5, off: 'none' },
+  { id: 'lsm', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.8, off: 'none' },
   { id: 'lbgf', label: 'Fade the background (depth)', min: 0, max: 1, step: 0.01, val: 0, off: 'whole picture (the depth model stays off)' },
+  { head: 'Calm (less flicker)' },
+  { id: 'lstep', label: 'Updates per second (low = slow, steady)', min: 1, max: 30, step: 0.5, val: 8, off: '8' },
+  { id: 'lcom', label: 'Share of areas that change each update', min: 0.02, max: 1, step: 0.01, val: 0.25, off: '0.25' },
+  { id: 'lhys', label: 'Hold a symbol until the change is bigger than (steps)', min: 0, max: 2, step: 0.05, val: 0.6, off: '0.6' },
   { head: 'Type' },
-  { id: 'lshim', label: 'Shimmer (symbols change)', min: 0, max: 1, step: 0.01, val: 0.2, off: 'steady' },
-  { id: 'lrate', label: 'Shimmer speed per second', min: 0.5, max: 24, step: 0.5, val: 6, off: '6' },
+  { id: 'lshim', label: 'Shimmer (symbols change)', min: 0, max: 1, step: 0.01, val: 0.15, off: 'steady' },
+  { id: 'lrate', label: 'Shimmer hops per second (each symbol on its own beat)', min: 0.2, max: 24, step: 0.1, val: 1.5, off: '1.5' },
   { id: 'lbg', label: 'Faint symbols in the empty ground', min: 0, max: 1, step: 0.01, val: 0.12, off: 'none' },
   { id: 'lwt', label: 'Symbol weight', min: 0, max: 1, step: 0.01, val: 0.6, off: 'light' },
 ];
@@ -61,7 +65,7 @@ void main() {
   float r = h21(cid + 3.3);
   if (r < bgd * 0.5) lv = max(lv, 0.10 + 0.22 * h21(cid + 9.1));                       // faint symbols in the empty ground
   float g = floor(lv * (nG - 0.001));
-  float sh = (h21(cid + floor(time) * 1.7) - 0.5) * 2.0 * shim * 2.0;                  // the symbol hops to a neighbour of the ramp
+  float sh = (h21(cid + floor(time + r * 7.0) * 1.7) - 0.5) * 2.0 * shim * 2.0;                  // the symbol hops to a neighbour of the ramp
   g = clamp(g + (g > 0.5 ? floor(sh + 0.5) : 0.0), 0.0, nG - 1.0);
   vec2 q = (loc - 0.5) / size + 0.5;
   float cov = 0.0;
@@ -125,14 +129,20 @@ function updateTone() {
   if (!tone) { tone = lum.slice(); fgv = fg.slice(); } else for (let i = 0; i < n; i++) { tone[i] += (lum[i] - tone[i]) * k; fgv[i] += (fg[i] - fgv[i]) * k; }
   lvlUp = true;
 }
+let shown = null, lastCommit = 0, force = false;      // shown = the level each character currently displays; it only moves when its area commits to a change
 function uploadLevels() {
   const auto = num('lauto', 1), blk = auto * lo + (1 - auto) * num('lblk', 0.05), wht = auto * hi + (1 - auto) * num('lwht', 0.85), gam = num('lgam', 1.2), inv = num('linv', 0) >= 0.5;
-  const bgf = depthOn ? num('lbgf', 0) : 0, u8 = new Uint8Array(cols * rows); nLit = 0;
-  for (let i = 0; i < u8.length; i++) {
+  const bgf = depthOn ? num('lbgf', 0) : 0, n = cols * rows, u8 = new Uint8Array(n); nLit = 0;
+  const com = force ? 1 : num('lcom', 0.25), hys = force ? 0 : num('lhys', 0.6) / Math.max(1, nG - 1);
+  if (!shown || shown.length !== n) shown = new Float32Array(n), shown.fill(-1);
+  for (let i = 0; i < n; i++) {
     let v = tone[i]; if (inv) v = 1 - v;
-    let I = Math.pow(Math.min(1, Math.max(0, (v - blk) / Math.max(0.05, wht - blk))), gam) * (1 - bgf * (1 - fgv[i]));
-    if (I > 0.3) nLit++; u8[i] = Math.round(Math.min(1, I) * 255);
+    const I = Math.min(1, Math.pow(Math.min(1, Math.max(0, (v - blk) / Math.max(0.05, wht - blk))), gam) * (1 - bgf * (1 - fgv[i])));
+    if (shown[i] < 0) shown[i] = I;                                                              // first picture: show it at once
+    else if (Math.abs(I - shown[i]) > hys && Math.random() < com) shown[i] = I;                  // a random share of the areas that really changed commits now
+    if (shown[i] > 0.3) nLit++; u8[i] = Math.round(shown[i] * 255);
   }
+  force = false; lastCommit = performance.now();
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tLvl);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, u8); lvlUp = false;
 }
@@ -140,7 +150,7 @@ let pal = getPalette(); onPalette((p) => { pal = p; });
 const rgb = (a) => a.map((x) => x / 255);
 function render() {
   if (!tone) return;
-  if (lvlUp) uploadLevels();
+  if (lvlUp && (force || performance.now() - lastCommit >= 1000 / num('lstep', 8))) uploadLevels();
   const g = grid(), light = pal.cols[pal.cols.length - 1], mid = pal.n === 3 ? pal.cols[1] : light.map((x, i) => x * 0.8 + pal.cols[0][i] * 0.2);
   gl.useProgram(pr); gl.viewport(0, 0, OW, OH);
   gl.uniform2f(U.res, OW, OH); gl.uniform2f(U.cell, g.cw, g.ch); gl.uniform1f(U.nG, nG); gl.uniform1f(U.shim, num('lshim', 0.2)); gl.uniform1f(U.time, performance.now() / 1000 * num('lrate', 6));
@@ -172,8 +182,8 @@ setInterval(() => {
   $('#stats').innerHTML = row('characters', `${cols} x ${rows} = ${cols * rows}`) + row('dense ones', nLit) + row('frames per second', fps.toFixed(0));
   $('#budget').style.width = Math.min(100, (ms / Math.max(1, frames)) / 33.3 * 100) + '%';
 }, 500);
-$('#settings').addEventListener('input', () => { lvlUp = !!tone; }, true);
-cam.onStart = () => { lastMedia = -1; tone = null; };
+$('#settings').addEventListener('input', (e) => { lvlUp = !!tone; if (!/^l(step|com|hys|shim|rate)$/.test(e.target.id || '')) force = true; }, true);   // a picture setting shows at once; the calm settings only change the pace
+cam.onStart = () => { lastMedia = -1; tone = null; shown = null; };
 initDefaults('.l1');
 window.__state = { P, DM };
 requestAnimationFrame(loop);
