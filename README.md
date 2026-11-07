@@ -202,3 +202,12 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 - Letters calm mode now works in patches: the picture is cut into areas of Patch size characters (default 5). At each update a random share of the areas (default 0.25) commits, and its characters move toward the new picture by at most Symbols a character moves per change (default 1 ramp step), and only where the change is bigger than the hold value. So the type drifts gradually instead of blinking.
 - Calm mode (0 = the original behaviour) switches back to the v2.59 behaviour in one click (also set Time smoothing to 0.5, Shimmer hops to 6 and Shimmer to 0.2 to match it exactly). Git keeps the exact old code: commit dcf16f5, local tag letters-v2.59-original.
 - Measured on the test clip over 1.6 seconds: 1,133 changed pixels against 5,476 with the original settings, with the same number of lit symbols (2,681 against 2,728). Not checked on a live camera.
+
+## Depth steadiness: fewer maps, averaged with the frame before (v2.62)
+A shared group "Depth steadiness (all depth styles)" appears in every style that uses the depth model (Depth, Depth 3D, Depth Dots, Lines V2, Letters and Windows with the depth fade). It is saved in the browser.
+- Depth maps per second (default 12): caps how often the model runs; the styles already blend smoothly from the old map to the new one, so a lower rate costs smoothness of motion, not stability. A loaded video still gets every map.
+- Average with the frame before (0.5): the model input is mixed with the previous input, only where the picture did not change (a per-spot motion mask), so camera noise stops reaching the model and there are no ghosts on moving parts.
+- Hold still areas steady (0.5): still spots keep more of the previous depth map (up to 0.95), moving spots follow at once.
+- Extra detail when there is big movement (0.5): when much of the picture moves, the next maps run at a larger input (up to 1.5x, in 3 steps, dropping back after 1.5 s) and are brought back to the same map size, so nothing jumps; the cost is a lower rate during big movement.
+- The motion mask moved in front of the model and now works at a fixed map size.
+- Measured on the test clip: with the defaults the model made 10.2 maps per second against 18.5 with everything off, and the detail level stepped up when the clip moved. The flicker reduction itself is not measured (the clip has no camera noise); judge it on the live camera.

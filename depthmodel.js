@@ -2,9 +2,27 @@
 // Depth Anything V2 Small (+ V1 Small if its file is in vendor/), fp16 ONNX, onnxruntime-web on WebGPU (WASM fallback).
 // Output: M.out, depth 0 (far) .. 1 (near), M.w x M.h, smoothed in time (motion aware) and with shape detail; M.prevOut = the map before.
 // opt(id, default) reads a setting: the style's slider value, -1 when its box is off, or the default when the style has no such slider.
-import { msg, vid, cam } from './ui.js';
+import { $, msg, vid, cam, buildSliders } from './ui.js';
 
 export const OW = 1080, OH = 1920;
+
+// STEADINESS (shared by every style that uses depth): fewer, better depth maps, and each one averaged with the frame before.
+const SL = [
+  { head: 'Depth steadiness (all depth styles)' },
+  { id: 'dsfps', label: 'Depth maps per second (lower = fewer, steadier)', min: 1, max: 30, step: 0.5, val: 12, off: '12' },
+  { id: 'dsbl', label: 'Average with the frame before (still areas)', min: 0, max: 0.9, step: 0.01, val: 0.5, off: 'off' },
+  { id: 'dsst', label: 'Hold still areas steady', min: 0, max: 1, step: 0.01, val: 0.5, off: 'off' },
+  { id: 'dsfid', label: 'Extra detail when there is big movement', min: 0, max: 1, step: 0.01, val: 0.5, off: 'off' },
+];
+const SP = {}; let spBuilt = false;
+const sv = (id, d) => (SP.on && SP.on[id] !== undefined ? SP[id] : d);
+function buildSteady() {
+  if (spBuilt || !$('#sliders')) return; spBuilt = true;
+  buildSliders(SL, SP);
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('gaDepthSteady') || '{}'); } catch {}
+  for (const s of SL) if (s.id && saved[s.id] !== undefined) { const el = $('#' + s.id); if (el) { el.value = saved[s.id]; el.dispatchEvent(new Event('input', { bubbles: true })); } }
+  $('#sliders').addEventListener('input', (e) => { if (/^ds(fps|bl|st|fid)$/.test(e.target.id || '')) { try { const o = {}; for (const s of SL) if (s.id) o[s.id] = SP[s.id]; localStorage.setItem('gaDepthSteady', JSON.stringify(o)); } catch {} } });
+}
 
 export const MODELS = [
   { file: 'depth_anything_v2_small_fp16.onnx', label: 'Depth Anything V2 Small' },
@@ -16,6 +34,7 @@ export function createDepthModel(opt, onMap = () => {}) {
   const ic = document.createElement('canvas'), ix = ic.getContext('2d', { willReadFrequently: true });
   async function loadModel() {
     if (M.ready || M.loading) return;
+    buildSteady();
     M.loading = true; msg('Loading the depth models (Depth Anything V2 + V1 Small, 2 x 50 MB, first time only)...');
     try {
       M.ort = await import('./vendor/ort/ort.webgpu.min.mjs');
@@ -42,18 +61,49 @@ export function createDepthModel(opt, onMap = () => {}) {
     let cw = vw, ch = vw / ar; if (ch > vh) { ch = vh; cw = vh * ar; }
     return { sx: (vw - cw) / 2, sy: (vh - ch) / 2, cw, ch, vw, vh, mir: !!(cam.stream && cam.mirror) };
   }
+  const lc = document.createElement('canvas'), lx = lc.getContext('2d', { willReadFrequently: true });
+  function resample(a, aw, ah, bw, bh) {                         // bilinear resize of a depth map
+    const o = new Float32Array(bw * bh);
+    for (let y = 0; y < bh; y++) { const fy = Math.min(ah - 1, (y + 0.5) * ah / bh - 0.5), y0 = Math.max(0, Math.floor(fy)), y1 = Math.min(ah - 1, y0 + 1), ty = Math.max(0, fy - y0);
+      for (let x = 0; x < bw; x++) { const fx = Math.min(aw - 1, (x + 0.5) * aw / bw - 0.5), x0 = Math.max(0, Math.floor(fx)), x1 = Math.min(aw - 1, x0 + 1), tx = Math.max(0, fx - x0);
+        o[y * bw + x] = (a[y0 * aw + x0] * (1 - tx) + a[y0 * aw + x1] * tx) * (1 - ty) + (a[y1 * aw + x0] * (1 - tx) + a[y1 * aw + x1] * tx) * ty; } }
+    return o;
+  }
   async function infer() {
-    M.busy = true;
+    const tStart = performance.now();
+    if (!cam.isFile && M.tStart && tStart - M.tStart < 1000 / Math.max(1, sv('dsfps', 12)) - 3) return;   // fewer maps per second (a loaded video always gets every map)
+    M.tStart = tStart; M.busy = true;
     try {
       const nice = window.__niceVideo === true;                  // a loaded video in nice mode: the model gets time, so it works at its best (bigger input, and a mirrored second pass averaged in)
-      const k0 = Math.max(12, Math.round(opt('dpq', 22) < 0 ? 12 : opt('dpq', 22))), k = nice ? Math.max(k0, 40) : k0, W = 14 * k, H = 14 * Math.round(W * 16 / 9 / 14);
+      const k0 = Math.max(12, Math.round(opt('dpq', 22) < 0 ? 12 : opt('dpq', 22))), lvl = nice ? 0 : (M.fidLvl || 0), k = nice ? Math.max(k0, 40) : k0 + lvl * Math.round(k0 * 0.25);
+      const W = 14 * k, H = 14 * Math.round(W * 16 / 9 / 14), W0 = 14 * k0, H0 = 14 * Math.round(W0 * 16 / 9 / 14), tw = nice ? W : W0, th = nice ? H : H0;   // tw x th = the size of the map we keep
       if (ic.width !== W || ic.height !== H) { ic.width = W; ic.height = H; }
       const c = crop();
       ix.save(); if (c.mir) { ix.translate(W, 0); ix.scale(-1, 1); }
       ix.drawImage(vid, c.sx, c.sy, c.cw, c.ch, 0, 0, W, H); ix.restore();
       const px = ix.getImageData(0, 0, W, H).data, n = W * H, f = new Float32Array(3 * n);
+      // the frame compared with the frame before: where did the picture change (at the kept map size)?
+      let lpx = px;
+      if (tw !== W) { if (lc.width !== tw || lc.height !== th) { lc.width = tw; lc.height = th; } lx.save(); if (c.mir) { lx.translate(tw, 0); lx.scale(-1, 1); } lx.drawImage(vid, c.sx, c.sy, c.cw, c.ch, 0, 0, tw, th); lx.restore(); lpx = lx.getImageData(0, 0, tw, th).data; }
+      const nt = tw * th;
+      if (!M.lum || M.lum.length !== nt) { M.lum = new Float32Array(nt); M.mot = new Float32Array(nt); M.bl = new Float32Array(nt); M.prevLum = null; M.prevF = null; }
+      const lum = M.lum, mot = M.mot;
+      for (let i = 0; i < nt; i++) lum[i] = (0.299 * lpx[i * 4] + 0.587 * lpx[i * 4 + 1] + 0.114 * lpx[i * 4 + 2]) / 255;
+      const mf = Math.max(0, opt('dpm', 0.7));
+      if (M.prevLum && mf > 0) { for (let i = 0; i < nt; i++) mot[i] = Math.abs(lum[i] - M.prevLum[i]); blur3(mot, M.bl, tw, th); } else mot.fill(0);   // spread a little so whole moving shapes follow
+      M.prevLum = Float32Array.from(lum);
+      let ms2 = 0; for (let i = 0; i < nt; i += 7) ms2 += mot[i]; ms2 /= Math.ceil(nt / 7);                   // how much moves overall
+      const tl = Math.min(2, Math.floor(sv('dsfid', 0.5) * Math.min(1, ms2 * 25) * 2.99));                       // big movement: next map gets more detail (larger input)
+      if (tl > (M.fidLvl || 0) || performance.now() - (M.fidT || 0) > 1500) { if (tl > (M.fidLvl || 0)) M.fidT = performance.now(); M.fidLvl = tl; }
       const mean = [0.485, 0.456, 0.406], sd = [0.229, 0.224, 0.225];
       for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) f[ch * n + i] = (px[i * 4 + ch] / 255 - mean[ch]) / sd[ch];
+      const bw = sv('dsbl', 0.5);                                // average with the frame before, only where the picture is still (no ghosts on moving parts)
+      if (bw > 0 && M.prevF && M.prevF.length === f.length) {
+        for (let y = 0; y < H; y++) { const my = Math.min(th - 1, (y * th / H) | 0) * tw;
+          for (let x = 0; x < W; x++) { const i = y * W + x, wgt = bw * (1 - Math.min(1, mot[my + Math.min(tw - 1, (x * tw / W) | 0)] * 25));
+            if (wgt > 0.001) for (let ch = 0; ch < 3; ch++) f[ch * n + i] += (M.prevF[ch * n + i] - f[ch * n + i]) * wgt; } }
+      }
+      M.prevF = f.slice();
       const t0 = performance.now();
       const run1 = async (sess, input) => {
         const out = await sess.run({ [sess.inputNames[0]]: new M.ort.Tensor('float32', input, [1, 3, H, W]) });
@@ -71,13 +121,14 @@ export function createDepthModel(opt, onMap = () => {}) {
       };
       const w2 = M.sess.length > 1 ? Math.max(0, nice ? Math.max(opt('dpw', 0.5), 0.5) : opt('dpw', 0.5)) : 0;
       const res = await Promise.all(M.sess.slice(0, w2 > 0 ? 2 : 1).map(run));
-      const { d, oh, ow } = res[0];
+      let { d, oh, ow } = res[0];
       if (res[1] && res[1].d.length === d.length) {             // second model: fit a*d2 + b to d1 (least squares), then average
         const d2 = res[1].d; let sx = 0, sy = 0, sxx = 0, sxy = 0; const n2 = d.length;
         for (let i = 0; i < n2; i++) { sx += d2[i]; sy += d[i]; sxx += d2[i] * d2[i]; sxy += d2[i] * d[i]; }
         const a = (n2 * sxy - sx * sy) / Math.max(1e-9, n2 * sxx - sx * sx), b = (sy - a * sx) / n2;
         for (let i = 0; i < n2; i++) d[i] = d[i] * (1 - w2) + (a * d2[i] + b) * w2;
       }
+      if (ow !== tw || oh !== th) { d = resample(d, ow, oh, tw, th); ow = tw; oh = th; }       // a bigger input is brought back to the kept size, so nothing pops when the detail level changes
       const now = performance.now(); M.ms += ((now - t0) - M.ms) * 0.2;
       if (M.last) { M.fps += (1000 / (now - M.last) - M.fps) * 0.2; M.interval += ((now - M.last) - M.interval) * 0.3; } M.last = now;
       // robust range: near / far percentiles (the model gives larger = nearer), followed slowly so the map does not pump
@@ -91,24 +142,16 @@ export function createDepthModel(opt, onMap = () => {}) {
       const first = !M.sm || M.sm.length !== d.length;
       if (first) { M.lo = lo; M.hi = hi; } else { M.lo += (lo - M.lo) * fo; M.hi += (hi - M.hi) * fo; }
       const span = Math.max(1e-6, M.hi - M.lo), nd = d.length;
-      if (first) { for (const k of ['sm', 'out', 'bl', 'tmp', 'prevOut', 'mot', 'lum']) M[k] = new Float32Array(nd); M.prevLum = null; }
+      if (first) { for (const k of ['sm', 'out', 'tmp', 'prevOut']) M[k] = new Float32Array(nd); }
       const v = M.tmp;                                          // this map, normalised 0 (far) .. 1 (near), not clipped yet
       for (let i = 0; i < nd; i++) v[i] = (d[i] - M.lo) / span;
-      // motion: how much the video changed at each spot since the last map (moving spots follow fast, still spots smooth hard)
-      const lum = M.lum, sameSize = ow * oh === W * H;
-      if (sameSize) for (let i = 0; i < nd; i++) lum[i] = (0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]) / 255;
-      const mf = Math.max(0, opt('dpm', 0.7)), mot = M.mot;
-      if (M.prevLum && mf > 0 && sameSize) {
-        for (let i = 0; i < nd; i++) mot[i] = Math.abs(lum[i] - M.prevLum[i]);
-        blur3(mot, M.bl, ow, oh);                               // spread a little so whole moving shapes follow
-      } else mot.fill(0);
-      M.prevLum = sameSize ? Float32Array.from(lum) : null;
       if (first) { M.sm.set(v); }
       else {
         // time smoothing, motion aware: still spots keep most of the old map, moving spots follow the new one
         const s0 = Math.max(0, opt('dps', 0.8)), s = nice ? Math.min(s0, 0.5) : s0;      // nice mode: every map is already clean, so less smoothing lag
+        const hold = sv('dsst', 0.5), sS = s + (0.95 - s) * hold * (s < 0.95 ? 1 : 0), mot = M.mot, mf = Math.max(0, opt('dpm', 0.7));   // still spots can hold the old map harder
         for (let i = 0; i < nd; i++) {
-          const keep = s * (1 - Math.min(1, mot[i] * 25 * mf));
+          const keep = sS * (1 - Math.min(1, mot[i] * 25 * mf));
           M.sm[i] = M.sm[i] * keep + v[i] * (1 - keep);
         }
       }
