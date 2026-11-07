@@ -20,6 +20,7 @@ export const PRESETS = {                                      // dark, middle, l
   red: { label: 'Red tones', cols: ['#a8200f', '#e0573c', '#f3b2a2'], paper: '#fbf8f6' },
   electric: { label: 'Electric blue and white (Letters)', cols: ['#0a2cff', '#6f86ff', '#ffffff'], paper: '#ffffff' },
   nightlights: { label: 'Night windows (yellow lights)', cols: ['#0e1520', '#f0a030', '#ffc860'], paper: '#fff0cc' },
+  drones: { label: 'Drone show (warm LEDs on a night sky)', cols: ['#ff3b2f', '#ff8a2a', '#ffd36b'], paper: '#0a1020' },
   ink: { label: 'Ink on paper (V1 Line)', cols: ['#d23219', '#e5866f', '#f2c9bd'], paper: '#f2f0ee' },
 };
 

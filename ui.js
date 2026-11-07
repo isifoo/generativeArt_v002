@@ -114,6 +114,31 @@ $('#setbtn').onclick = () => setOpen(!document.body.classList.contains('editing'
 $('#setclose').onclick = () => setOpen(false);
 setOpen((() => { try { return localStorage.getItem(UIKEY) === '1'; } catch { return false; } })());
 
+// ---------------------------------------------------------------- loaded video: slow motion, or "nice mode" (frame by frame, waits for the effect)
+let stepping = 0;
+function videoMode() {
+  $('#vidmode').hidden = !cam.isFile;
+  vid.playbackRate = cam.isFile ? +$('#vspeed').value : 1;
+  if (!cam.isFile) { $('#vquality').checked = false; stepping = 0; }
+  nice();
+}
+async function nice() {                                      // step the video by hand: a frame, then wait until the depth model / the drawing has caught up with it
+  const on = cam.isFile && $('#vquality').checked, token = ++stepping;
+  if (!on) { if (cam.isFile && vid.paused) vid.play().catch(() => {}); return; }
+  vid.pause();
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
+  while (stepping === token && cam.isFile && $('#vquality').checked) {
+    const dt = (1 / 30) * +$('#vspeed').value, M = window.__state && window.__state.M, t1 = M ? M.tUp : 0;
+    let t = vid.currentTime + dt; if (t >= vid.duration - dt) t = 0;
+    await new Promise((res) => { const done = () => { vid.removeEventListener('seeked', done); res(); }; vid.addEventListener('seeked', done); vid.currentTime = t; setTimeout(done, 1500); });
+    await nextFrame();
+    if (M) { const t0 = performance.now(); while (M.tUp === t1 && stepping === token && performance.now() - t0 < 4000) await new Promise((r) => setTimeout(r, 16)); }
+    await nextFrame(); await nextFrame();
+  }
+}
+$('#vspeed').onchange = () => { vid.playbackRate = +$('#vspeed').value; };
+$('#vquality').onchange = nice;
+
 // ---------------------------------------------------------------- record: the canvas of any style, as it plays (real time), saved as a video
 {
   const btn = $('#recbtn'); let rec = null, chunks = [], t0 = 0, timer = 0, mime = '', ext = 'webm', raf = 0;
@@ -147,10 +172,10 @@ setOpen((() => { try { return localStorage.getItem(UIKEY) === '1'; } catch { ret
 
 // ---------------------------------------------------------------- video source
 export const vid = $('#vid');
-export const cam = { stream: null, mirror: true, onStart: () => {}, onLoad: () => {} };
+export const cam = { stream: null, mirror: true, isFile: false, onStart: () => {}, onLoad: () => {} };
 export async function loadVideo(url) {
   stopCamera();
-  vid.src = url; vid.muted = true; vid.loop = true;
+  vid.src = url; vid.muted = true; vid.loop = true; cam.isFile = true; videoMode();
   await new Promise((res, rej) => { vid.onloadeddata = res; vid.onerror = () => rej(new Error('video failed to load')); });
   await vid.play().catch(() => {});
   cam.onLoad();
@@ -168,7 +193,7 @@ export async function startCamera() {
     msg('Camera is not available here (' + (e.name || e.message) + '). Use "Load video" to pick a file.');
     return false;
   }
-  msg(''); vid.removeAttribute('src'); vid.srcObject = cam.stream; vid.loop = false;
+  msg(''); vid.removeAttribute('src'); vid.srcObject = cam.stream; vid.loop = false; cam.isFile = false; videoMode();
   await vid.play().catch(() => {});
   $('#cam').classList.add('on'); cam.onStart();
   return true;
@@ -200,9 +225,8 @@ export function drawCover(c, w, h) {
 
 // ---------------------------------------------------------------- colours (one palette for every style)
 mountPaletteEditor($('#palette'));
-{ // the Colours heading folds too (closed by default: the wheel is big)
+{ // the Colours heading folds too (open by default, so the colour system is easy to find; the fold is remembered)
   const h = $('#palette').previousElementSibling, b = $('#palette'), key = '#colours';
-  if (!localStorage.getItem(FOLDKEY)) folds.add(key);
   h.classList.add('foldh');
   const set = (open) => { b.hidden = !open; h.classList.toggle('closed', !open); };
   set(!folds.has(key));

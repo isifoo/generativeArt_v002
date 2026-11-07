@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261107060000">
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261107060000","./palette.js":"./palette.js?b=20261107060000","./colorwheel.js":"./colorwheel.js?b=20261107060000","./depthmodel.js":"./depthmodel.js?b=20261107060000"}}</script>
-<link rel="stylesheet" href="css/main.css?b=20261107060000">
+<meta name="build" content="20261107090000">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261107090000","./palette.js":"./palette.js?b=20261107090000","./colorwheel.js":"./colorwheel.js?b=20261107090000","./depthmodel.js":"./depthmodel.js?b=20261107090000"}}</script>
+<link rel="stylesheet" href="css/main.css?b=20261107090000">
 </head>
 <body>
 <div id="app">
@@ -20,7 +20,7 @@
     <div class="row"><span class="row" id="versions"></span><button id="nodebtn" type="button" data-views="dollar5,linesv2">Nodes</button><button id="setbtn" type="button">Edit</button><button id="recbtn" type="button" title="Record the picture as it plays, in real time, and save the video">Record</button></div>
     <div id="msg"></div>
     <div id="pinbox" class="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v2.56 (2026-11-07)</div>
+    <div class="note" id="ver">Generative Art v002 · v2.57 (2026-11-07)</div>
   </div>
 </div>
 
@@ -48,18 +48,19 @@
     <button id="restart" type="button">Restart</button>
   </div>
   <div class="ctl"><span>Input</span><label class="note"><input type="checkbox" id="mirror" checked data-save> mirror camera</label></div>
+  <div class="ctl" id="vidmode" hidden><span>Video</span><select id="vspeed" title="Playback speed of the loaded video"><option value="1">Normal speed</option><option value="0.5">Slow motion 1/2</option><option value="0.25">Slow motion 1/4</option><option value="0.1">Slow motion 1/10</option></select> <label class="note"><input type="checkbox" id="vquality"> Nice mode: frame by frame, waits for the effect</label></div>
   <div class="ctl" data-views="line,dollar3"><span>Subject</span><select id="subject" data-save><option value="0">Off</option><option value="1" selected>Subject only</option><option value="2">Background only</option></select></div>
   <div class="ctl" data-views="line,dollar3"><span>Red key</span><label class="note"><input type="checkbox" id="key" data-save> key out red (red background only)</label></div>
-  <h2 class="grp" style="margin:12px 0 6px">Colours (every style)</h2>
+  <h2 class="grp keep" style="margin:12px 0 6px">Colours (every style)</h2>
   <div id="palette"></div>
   <div class="ctl" data-views="depth"><span>Look</span><select id="dpmode" data-save><option value="grey" selected>Grey (near = white)</option><option value="palnear">Palette (near = dark colour)</option><option value="palfar">Palette (near = light colour)</option></select></div>
   <div class="ctl" data-views="depth3d"><span>Look</span><select id="d3look" data-save><option value="video" selected>Video on the surface</option><option value="clay">White clay</option><option value="palette">Palette by depth</option></select></div>
   <div class="ctl" data-views="depth3d"><span>Turn</span><span class="note">drag the picture to turn it, double click to reset</span></div>
   <div class="ctl" data-views="dollar2"><span>Layers</span><label class="note"><input type="checkbox" id="e2base" checked data-save> Dollar 2 lines (untick: only the Dollar overlay)</label></div>
   <div class="ctl" data-views="dollar,dollar1,dollar2,dollar3"><span>Colours</span><label class="note"><input type="checkbox" id="e2pal" data-save> use the palette (off: black ink on white paper)</label></div>
-  <div class="ctl" data-views="depthdots"><span>Depth drives</span><select id="ddmode" data-save><option value="size" selected>Size (one colour, near = big)</option><option value="colour">Colour (palette, random sizes)</option></select></div>
-  <div class="ctl" data-views="ishihara,depthdots"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (ishihara: bright video = dark circles; depth dots: far = big / far = first colour)</label></div>
-  <div class="ctl" data-views="ishihara,depthdots"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
+  <div class="ctl" data-views="olddepthdots"><span>Depth drives</span><select id="ddmode" data-save><option value="size" selected>Size (one colour, near = big)</option><option value="colour">Colour (palette, random sizes)</option></select></div>
+  <div class="ctl" data-views="ishihara"><span>Tone</span><label class="note"><input type="checkbox" id="ihinv" data-save> invert (ishihara: bright video = dark circles; depth dots: far = big / far = first colour)</label></div>
+  <div class="ctl" data-views="ishihara"><span>Preview</span><label class="note"><input type="checkbox" id="ihprev"> show the colour map the circles follow</label></div>
   <div class="cols"><span></span><span></span><span>value</span><span>max</span><span>on</span></div>
   <div id="sliders"></div>
   <p class="note">Max sets the top of each slider's range. Untick "on" and the slider sends -1 (hover the box to see what off does). V1 Line pauses while you drag and catches up when you let go. Ishihara eases every change. Colours apply to every style.</p>
@@ -70,7 +71,7 @@
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
   const v = new URLSearchParams(location.search).get('view');
-  import(({ ishihara: './ishihara.js', depthdots: './ishihara.js', depth: './depth.js', depth3d: './depth3d.js', dollar5: './lines.js', linesv2: './lines.js', windows: './windows.js', letters: './letters.js', camera: './camera.js' }[v] || './line.js') + '?b=' + b);
+  import(({ ishihara: './ishihara.js', depthdots: './dots.js', depth: './depth.js', depth3d: './depth3d.js', dollar5: './lines.js', linesv2: './lines.js', windows: './windows.js', letters: './letters.js', camera: './camera.js' }[v] || './line.js') + '?b=' + b);
 </script>
 </body>
 </html>
