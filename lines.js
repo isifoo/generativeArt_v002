@@ -209,7 +209,7 @@ function fitCanvas() {
   if (w !== canvas.width) { canvas.width = w; canvas.height = h; dirty = true; }
 }
 new ResizeObserver(fitCanvas).observe(canvas); fitCanvas();
-const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance' });
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
 const VS = `#version 300 es
 in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }`;
 const FS = `#version 300 es

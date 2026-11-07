@@ -8,6 +8,7 @@ export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 
 // ---------------------------------------------------------------- versions (each one is a button)
 export const VERSIONS = [
+  { id: 'camera', label: 'Camera' },                              // just the camera in real time, with a light grade (camera.js)
   { id: 'line', label: 'V1 Line' },
   { id: 'ishihara', label: 'Ishihara' },
   { id: 'depth', label: 'Depth' },
@@ -20,11 +21,12 @@ export const VERSIONS = [
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
-for (const v of VERSIONS) {
-  const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
-  b.classList.toggle('on', v.id === VIEW);
-  b.onclick = () => { if (v.id !== VIEW) location.search = '?view=' + v.id; };
-  $('#versions').append(b);
+{                                                       // one menu for every style (the page reloads into the chosen style; the camera comes back at once)
+  const sel = document.createElement('select'); sel.id = 'stylepick'; sel.title = 'Style';
+  for (const v of VERSIONS) { const o = document.createElement('option'); o.value = v.id; o.textContent = v.label; sel.append(o); }
+  sel.value = VIEW;
+  sel.onchange = () => { if (sel.value !== VIEW) location.search = '?view=' + sel.value; };
+  $('#versions').append(sel);
 }
 document.querySelectorAll('[data-views]').forEach((el) => { el.hidden = !el.dataset.views.split(',').includes(VIEW); });
 $('#setHead').textContent = 'Edit: ' + VERSIONS.find((v) => v.id === VIEW).label;
@@ -111,6 +113,37 @@ const setOpen = (open) => {
 $('#setbtn').onclick = () => setOpen(!document.body.classList.contains('editing'));
 $('#setclose').onclick = () => setOpen(false);
 setOpen((() => { try { return localStorage.getItem(UIKEY) === '1'; } catch { return false; } })());
+
+// ---------------------------------------------------------------- record: the canvas of any style, as it plays (real time), saved as a video
+{
+  const btn = $('#recbtn'); let rec = null, chunks = [], t0 = 0, timer = 0, mime = '', ext = 'webm', raf = 0;
+  const pick = () => ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+  const label = () => { const s = Math.floor((Date.now() - t0) / 1000); btn.textContent = 'Stop ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function stop() {
+    if (rec && rec.state !== 'inactive') rec.stop();
+  }
+  function start() {
+    const cv = $('#cv');
+    if (!window.MediaRecorder || !cv.captureStream) { msg('This browser cannot record the picture. Use the screen recorder of the device instead.'); return; }
+    mime = pick(); ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm'; chunks = [];
+    const rc = document.createElement('canvas'), rx = rc.getContext('2d'); rc.width = cv.width; rc.height = cv.height;
+    const stream = rc.captureStream(30);
+    const pump = () => { raf = requestAnimationFrame(pump); if (rc.width !== cv.width || rc.height !== cv.height) { rc.width = cv.width; rc.height = cv.height; } rx.drawImage(cv, 0, 0); };
+    pump();
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 12e6 } : { videoBitsPerSecond: 12e6 }); }
+    catch (e) { msg('Recording could not start: ' + e.message); return; }
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      clearInterval(timer); cancelAnimationFrame(raf); btn.classList.remove('on'); btn.textContent = 'Record'; stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunks, { type: mime || 'video/webm' }), url = URL.createObjectURL(blob), a = document.createElement('a');
+      a.href = url; a.download = `generative-art-${VIEW}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.${ext}`; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      msg(ext === 'mp4' ? 'Saved the video (MP4).' : 'Saved the video as WebM (this browser has no MP4 recorder). Instagram needs MP4: convert it first, or record on a device that saves MP4.');
+    };
+    rec.start(1000); t0 = Date.now(); btn.classList.add('on'); label(); timer = setInterval(label, 500);
+  }
+  btn.onclick = () => (rec && rec.state === 'recording' ? stop() : start());
+}
 
 // ---------------------------------------------------------------- video source
 export const vid = $('#vid');

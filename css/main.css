@@ -31,6 +31,8 @@ h2 { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:upper
 .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:7px 12px; font:inherit; cursor:pointer; }
 button:hover { border-color:#555; }
+#stylepick { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:7px 12px; font:inherit; cursor:pointer; min-width:150px; }
+#stylepick:hover { border-color:#555; }
 button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
 .note { color:var(--dim); font-size:12px; }
 #msg { color:#e8b04a; white-space:pre-wrap; font:12px ui-monospace, Consolas, monospace; }
@@ -155,7 +157,8 @@ body.nodeedit #settings > h2, body.nodeedit #settings > .bar, body.nodeedit #sta
 /* STUDIO (Fractal Lines): nodes left | picture centre | settings right, always. Phones: picture, nodes, settings stacked. */
 body.studio { --stw:calc((100vh - 104px) * 9 / 16); --colw:calc((100vw - var(--stw)) / 2 - 28px); }
 body.studio #stage, body.studio #side { transform:none !important; transition:none; }
-body.studio #setbtn, body.studio #nodebtn, body.studio #setclose { display:none; }
+body.studio #setbtn, body.studio #nodebtn, body.studio #setclose, body.studio #recbtn { display:none; }
+#recbtn.on { background:#d23219; color:#fff; border-color:#d23219; }
 body.studio #nodes, body.studio #settings { box-shadow:none; }   /* nothing spills over the picture */
 body.studio #nodes { left:16px !important; top:16px; bottom:96px; width:var(--colw); max-height:none; transition:none; }   /* ends above the style buttons */
 body.studio #settings { right:16px; top:16px; width:var(--colw); max-height:calc(100vh - 112px); transform:none; visibility:visible; transition:none; }

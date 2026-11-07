@@ -18,16 +18,16 @@ const SLIDERS = [
   { id: 'dps', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.8, off: 'none' },
   { id: 'dpm', label: 'Motion follow', min: 0, max: 1, step: 0.01, val: 0.7, off: 'same smoothing everywhere' },
   { head: '3D surface' },
-  { id: 'd3z', label: 'Depth amount', min: 0, max: 3, step: 0.01, val: 0.9, off: 'flat' },
+  { id: 'd3z', label: 'Depth amount', min: 0, max: 3, step: 0.01, val: 0.3, off: 'flat' },
   { id: 'd3c', label: 'Depth curve', min: 0.3, max: 3, step: 0.01, val: 1.3, off: 'linear (1)' },
   { id: 'd3g', label: 'Mesh detail', min: 40, max: 260, step: 2, val: 160, off: '40' },
   { id: 'd3k', label: 'Cut edges (0 = no cut)', min: 0, max: 0.4, step: 0.005, val: 0, off: 'no cut: jumps become the sides of the objects' },
   { id: 'd3m', label: 'Surface smoothing', min: 0, max: 4, step: 1, val: 2, off: 'none' },
   { head: 'Camera' },
-  { id: 'd3y', label: 'Turn deg', min: -70, max: 70, step: 0.5, val: 22, off: 'straight on' },
-  { id: 'd3p', label: 'Tilt deg', min: -45, max: 45, step: 0.5, val: 8, off: 'level' },
+  { id: 'd3y', label: 'Turn deg', min: -70, max: 70, step: 0.5, val: 0, off: 'straight on' },
+  { id: 'd3p', label: 'Tilt deg', min: -45, max: 45, step: 0.5, val: 0, off: 'level' },
   { id: 'd3f', label: 'Zoom', min: 0.5, max: 2.5, step: 0.01, val: 1.05, off: '1' },
-  { id: 'd3a', label: 'Sway deg', min: 0, max: 30, step: 0.5, val: 6, off: 'still' },
+  { id: 'd3a', label: 'Sway deg', min: 0, max: 30, step: 0.5, val: 0, off: 'still' },
   { id: 'd3as', label: 'Sway speed', min: 0, max: 1, step: 0.01, val: 0.12, off: 'still' },
   { head: 'Light' },
   { id: 'd3l', label: 'Light angle deg', min: 0, max: 360, step: 1, val: 135, off: '135' },
@@ -156,7 +156,8 @@ function mapVideo() {
 // ---------------------------------------------------------------- camera: angle + sway + drag
 let dragYaw = 0, dragPitch = 0, drag = null;
 canvas.style.touchAction = 'none';
-canvas.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY, dragYaw, dragPitch]; canvas.setPointerCapture(e.pointerId); });
+const ORBIT = false;                                           // the view stays frontal: dragging does not orbit (the Turn / Tilt / Sway sliders still can)
+canvas.addEventListener('pointerdown', (e) => { if (!ORBIT) return; drag = [e.clientX, e.clientY, dragYaw, dragPitch]; canvas.setPointerCapture(e.pointerId); });
 canvas.addEventListener('pointermove', (e) => { if (!drag) return; dragYaw = drag[2] + (e.clientX - drag[0]) * 0.3; dragPitch = Math.max(-60, Math.min(60, drag[3] + (e.clientY - drag[1]) * 0.3)); });
 canvas.addEventListener('pointerup', () => { drag = null; }); canvas.addEventListener('pointercancel', () => { drag = null; });
 canvas.addEventListener('dblclick', () => { dragYaw = 0; dragPitch = 0; });
