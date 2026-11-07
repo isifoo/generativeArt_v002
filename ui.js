@@ -124,7 +124,9 @@ function videoMode() {
 }
 async function nice() {                                      // step the video by hand: a frame, then wait until the depth model / the drawing has caught up with it
   const on = cam.isFile && $('#vquality').checked, token = ++stepping;
+  window.__niceVideo = on;                                   // the depth model reads this: bigger input and a mirrored second pass
   if (!on) { if (cam.isFile && vid.paused) vid.play().catch(() => {}); return; }
+  msg('Nice mode: the depth model runs at a bigger size with a mirrored second pass, one frame at a time.');
   vid.pause();
   const nextFrame = () => new Promise((r) => requestAnimationFrame(r));
   while (stepping === token && cam.isFile && $('#vquality').checked) {

@@ -45,7 +45,8 @@ export function createDepthModel(opt, onMap = () => {}) {
   async function infer() {
     M.busy = true;
     try {
-      const k = Math.max(12, Math.round(opt('dpq', 22) < 0 ? 12 : opt('dpq', 22))), W = 14 * k, H = 14 * Math.round(W * 16 / 9 / 14);
+      const nice = window.__niceVideo === true;                  // a loaded video in nice mode: the model gets time, so it works at its best (bigger input, and a mirrored second pass averaged in)
+      const k0 = Math.max(12, Math.round(opt('dpq', 22) < 0 ? 12 : opt('dpq', 22))), k = nice ? Math.max(k0, 40) : k0, W = 14 * k, H = 14 * Math.round(W * 16 / 9 / 14);
       if (ic.width !== W || ic.height !== H) { ic.width = W; ic.height = H; }
       const c = crop();
       ix.save(); if (c.mir) { ix.translate(W, 0); ix.scale(-1, 1); }
@@ -54,12 +55,21 @@ export function createDepthModel(opt, onMap = () => {}) {
       const mean = [0.485, 0.456, 0.406], sd = [0.229, 0.224, 0.225];
       for (let i = 0; i < n; i++) for (let ch = 0; ch < 3; ch++) f[ch * n + i] = (px[i * 4 + ch] / 255 - mean[ch]) / sd[ch];
       const t0 = performance.now();
-      const run = async (sess) => {
-        const out = await sess.run({ [sess.inputNames[0]]: new M.ort.Tensor('float32', f, [1, 3, H, W]) });
+      const run1 = async (sess, input) => {
+        const out = await sess.run({ [sess.inputNames[0]]: new M.ort.Tensor('float32', input, [1, 3, H, W]) });
         const o = out[sess.outputNames[0]], dims = o.dims;
         return { d: Float32Array.from(o.data ?? await o.getData()), oh: dims[dims.length - 2], ow: dims[dims.length - 1] };
       };
-      const w2 = M.sess.length > 1 ? Math.max(0, opt('dpw', 0.5)) : 0;
+      let ff = null;                                            // nice mode: the same picture mirrored left to right
+      if (nice) { ff = new Float32Array(3 * n); for (let ch = 0; ch < 3; ch++) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) ff[ch * n + y * W + x] = f[ch * n + y * W + (W - 1 - x)]; }
+      const run = async (sess) => {
+        const a = await run1(sess, f);
+        if (!ff) return a;
+        const b = await run1(sess, ff), { ow, oh } = a;           // un-mirror the second answer and average the two: less noise, steadier edges
+        if (b.ow === ow && b.oh === oh) for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) a.d[y * ow + x] = (a.d[y * ow + x] + b.d[y * ow + (ow - 1 - x)]) * 0.5;
+        return a;
+      };
+      const w2 = M.sess.length > 1 ? Math.max(0, nice ? Math.max(opt('dpw', 0.5), 0.5) : opt('dpw', 0.5)) : 0;
       const res = await Promise.all(M.sess.slice(0, w2 > 0 ? 2 : 1).map(run));
       const { d, oh, ow } = res[0];
       if (res[1] && res[1].d.length === d.length) {             // second model: fit a*d2 + b to d1 (least squares), then average
@@ -96,7 +106,7 @@ export function createDepthModel(opt, onMap = () => {}) {
       if (first) { M.sm.set(v); }
       else {
         // time smoothing, motion aware: still spots keep most of the old map, moving spots follow the new one
-        const s = Math.max(0, opt('dps', 0.8));
+        const s0 = Math.max(0, opt('dps', 0.8)), s = nice ? Math.min(s0, 0.5) : s0;      // nice mode: every map is already clean, so less smoothing lag
         for (let i = 0; i < nd; i++) {
           const keep = s * (1 - Math.min(1, mot[i] * 25 * mf));
           M.sm[i] = M.sm[i] * keep + v[i] * (1 - keep);

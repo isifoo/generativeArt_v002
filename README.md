@@ -188,3 +188,8 @@ Setting `Live strokes` to 1 now also raises the Overlay Strength to 1 if it was 
 ## Centred frame, settings beside it (v2.58)
 
 - The frame no longer glides to the left when Edit opens: it stays in the centre of the page. On wide screens (at least 900 px, wider than tall) the settings panel sits right next to it, on its right, and fades in; on narrow or portrait screens it still floats over the right side. The frame's width is kept in `--stagew` (a ResizeObserver, so it follows any frame proportions).
+
+## Depth Dots in 3D space, a better depth map in Nice mode (v2.59)
+
+- **Depth Dots** now places every drone in real 3D space: the drones are GPU points; each reads the depth of its lattice cell, sits at its own distance (z) from the camera, and is drawn through a perspective camera, so near drones spread wider and look bigger, far ones sit deeper, and a slow sway of the camera shows the depth. New settings: Depth in space, Perspective, Turn, Tilt, Sway, Sway speed (the old flat "Depth sway" is gone). Hover, twinkle, the faint sky drones, the palette ramp and the three-level glow stay.
+- **Nice mode now improves the depth map itself** (it only waited before): the depth model runs at a bigger input (at least 560 px wide, normal is 308 on the default settings), a second pass on the mirrored picture is averaged in (less noise, steadier edges), the second model is used if installed, and the time smoothing is capped at 0.5 (each map is already clean). Measured on the clip: depth map 308 x 546 at 16 ms per map becomes 560 x 994 at 160 ms per map. The camera is unaffected.
