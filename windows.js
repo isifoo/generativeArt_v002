@@ -19,6 +19,10 @@ const SLIDERS = [
   { head: 'Person' },
   { id: 'wbgf', label: 'Fade the background (depth)', min: 0, max: 1, step: 0.01, val: 0.85, off: 'whole picture' },
   { id: 'wfg', label: 'Person edge (depth)', min: 0.1, max: 0.9, step: 0.01, val: 0.5, off: '0.5' },
+  { head: 'Ambient lights (the background windows)' },
+  { id: 'wamb', label: 'Windows lit in the background %', min: 0, max: 40, step: 0.5, val: 9, off: 'none' },
+  { id: 'wamv', label: 'Ambient brightness', min: 0, max: 1, step: 0.01, val: 0.35, off: 'none' },
+  { id: 'wams', label: 'Ambient change speed', min: 0, max: 3, step: 0.01, val: 0.6, off: 'frozen' },
   { head: 'Look' },
   { id: 'wpal', label: 'Light colours from the palette (1 = on)', min: 0, max: 1, step: 1, val: 1, off: 'built-in yellow and cool white' },
   { id: 'wwarm', label: 'Warm / cool mix', min: 0, max: 1, step: 0.01, val: 0.9, off: 'all cool white' },
@@ -168,6 +172,7 @@ function uploadLevels() {
   const N = WINS.length + 1, wdt = 256, hgt = Math.ceil(N / wdt) || 1, u8 = new Uint8Array(wdt * hgt);
   const auto = num('wauto', 1), blk = auto * lo + (1 - auto) * num('wblk', 0.05), wht = auto * hi + (1 - auto) * num('wwht', 0.8), gam = num('wgam', 1.15), str = num('wstr', 1), vr = num('wvar', 0.12);
   const bgf = hasDepth() ? num('wbgf', 0.85) : 0, inv = num('winv', 0) >= 0.5; nLit = 0;
+  const amb = num('wamb', 9) / 100, ambV = num('wamv', 0.35), ams = num('wams', 0.6), tt = performance.now() / 1000;
   for (let k = 0; k < WINS.length; k++) {
     const [x, y, w, h] = WINS[k], id = k + 1; let s = 0, sf = 0, c = 0;
     for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {                                           // 3 x 3 samples over the window's own area
@@ -178,6 +183,15 @@ function uploadLevels() {
     let I = Math.pow(Math.min(1, Math.max(0, (v - blk) / Math.max(0.05, wht - blk))), gam);
     I *= 1 - bgf * (1 - sf / c);
     I *= str * (1 + (hash(id) - 0.5) * 2 * vr);
+    if (amb > 0) {                                                    // the background windows are lights of their own: some come on and go off slowly, a few flicker like a screen; farther buildings are dimmer
+      const ly = WINS[k][4] === undefined ? 3 : WINS[k][4];
+      if (hash(id + 11) < amb) {
+        const ph = hash(id + 13) * 6.2832, sp = (0.3 + hash(id + 17)) * ams, v = Math.sin(tt * sp * 0.6 + ph), on = Math.min(1, Math.max(0, (v + 0.1) / 0.45));
+        let la = ambV * on * on * (3 - 2 * on) * [0.35, 0.55, 0.8, 1.0][ly] * (0.6 + 0.4 * hash(id + 19));
+        if (hash(id + 23) < 0.3) la *= 0.72 + 0.28 * Math.sin(tt * 7 + ph * 3);
+        I = Math.max(I, la);
+      }
+    }
     I = Math.min(1.5, Math.max(0, I)); if (I > 0.15) nLit++;
     u8[id] = Math.round(I / 1.5 * 255);
   }
@@ -202,7 +216,7 @@ function lightColours() {
 }
 function render() {
   if (!ready || !tone) return;
-  if (litUp) uploadLevels();
+  if (litUp || (num('wamb', 9) > 0 && num('wams', 0.6) > 0)) uploadLevels();
   gl.useProgram(pr);
   { const [a, b, c] = lightColours(); gl.uniform3fv(U.yelA, a); gl.uniform3fv(U.yelB, b); gl.uniform3fv(U.coolC, c); }
   gl.uniform1f(U.warm, num('wwarm', 0.9)); gl.uniform1f(U.glow, num('wgl', 0.9)); gl.uniform1f(U.spread, num('wgs', 0.5)); gl.uniform1f(U.dim, num('wdim', 1.15));
