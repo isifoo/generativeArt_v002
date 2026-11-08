@@ -23,6 +23,7 @@ const SLIDERS = [
   { id: 'dplr', label: 'Shape size px', min: 8, max: 160, step: 2, val: 48, off: '48' },
   { id: 'dpe', label: 'Edge sharpness', min: 0, max: 1, step: 0.01, val: 0.75, off: 'plain upsampling (soft edges)' },
   { id: 'dpd', label: 'Video detail', min: 0, max: 1, step: 0.01, val: 0.12, off: 'pure depth' },
+  { id: 'dpli', label: 'Lines (cartoon pass)', min: 0, max: 2, step: 0.01, val: 0.6, off: 'no lines' },
   { id: 'dpk', label: 'Colour steps (0 = continuous)', min: 0, max: 16, step: 1, val: 0, off: 'continuous' },
   { head: 'Motion' },
   { id: 'dps', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.8, off: 'none' },
@@ -46,7 +47,8 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D dep, depPrev, vidT;
+uniform sampler2D dep, depPrev, vidT, lin;
+uniform float lh, ls; uniform vec2 lsz;   // line pass: halo and sharp strength, size of the line textures
 uniform float bt;          // blend between the previous and the newest depth map (0 .. 1 over the time between maps)
 uniform vec2 dsz;          // depth texture size
 uniform vec4 crop;         // video uv: offset xy, scale zw (cover crop)
@@ -81,7 +83,33 @@ void main() {
     if (ncol > 2.5) col = t < 0.5 ? mix(c0, c1, t * 2.0) : mix(c1, c2, t * 2.0 - 1.0);
     else col = mix(c0, c2, t);
   }
+  if (lh + ls > 0.0) {                                              // steady lines from the cleaned picture (see the line pass below), laid on like the AE cartoon effect
+    vec2 ec = vec2(uv.x, 1.0 - uv.y); float E = texture(lin, ec).r, hb = 0.0; vec2 hs = 4.0 / lsz;
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) hb += texture(lin, ec + vec2(float(i), float(j)) * hs).r;
+    col *= 1.0 - lh * clamp(hb / 3.0, 0.0, 1.0) - ls * E;
+  }
   o = vec4(col, 1.0);
+}`;
+// LINE PASS (procedural, no model). Pass 1: picture brightness averaged over time, much more where nothing moves, fully fresh where it moves.
+// Pass 2: soft edge strength of that steady picture with one fixed threshold (no per frame choosing, so lines never switch on and off).
+const FSL = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D vidT, Lp; uniform vec4 crop; uniform float mir, amin, reset; uniform vec2 lsz;
+float lum(vec2 q) { vec2 u = vec2(mir > 0.5 ? 1.0 - q.x : q.x, q.y); return dot(texture(vidT, crop.xy + u * crop.zw).rgb, vec3(0.299, 0.587, 0.114)); }
+void main() {
+  vec2 h = 0.5 / lsz, tc = gl_FragCoord.xy / lsz;
+  float L = 0.25 * (lum(uv + vec2(-h.x, -h.y)) + lum(uv + vec2(h.x, -h.y)) + lum(uv + vec2(-h.x, h.y)) + lum(uv + h));
+  float P = texture(Lp, tc).r, a = reset > 0.5 ? 1.0 : mix(amin, 1.0, smoothstep(0.03, 0.10, abs(L - P)));
+  o = vec4(mix(P, L, a), 0.0, 0.0, 1.0);
+}`;
+const FSE = `#version 300 es
+precision highp float;
+out vec4 o; uniform sampler2D Lt; uniform vec2 lsz; uniform float lo, hi;
+void main() {
+  vec2 tc = gl_FragCoord.xy / lsz, d = 1.0 / lsz;
+  float gx = (texture(Lt, tc + vec2(d.x, 0.0)).r - texture(Lt, tc - vec2(d.x, 0.0)).r) * 0.5, gy = (texture(Lt, tc + vec2(0.0, d.y)).r - texture(Lt, tc - vec2(0.0, d.y)).r) * 0.5;
+  float x = clamp((length(vec2(gx, gy)) - lo) / (hi - lo), 0.0, 1.0); o = vec4(x * x * (3.0 - 2.0 * x), 0.0, 0.0, 1.0);
 }`;
 function prog(vs, fs) {
   const p = gl.createProgram();
@@ -90,7 +118,7 @@ function prog(vs, fs) {
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) msg('Shader: ' + gl.getShaderInfoLog(s));
     gl.attachShader(p, s);
   }
-  gl.linkProgram(p); return p;
+  gl.bindAttribLocation(p, 0, 'p'); gl.linkProgram(p); return p;
 }
 let pr, U = {}, tDep, tVid, tPrev, upload = false;
 if (gl) {
@@ -98,16 +126,41 @@ if (gl) {
   const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  for (const n of ['dep', 'depPrev', 'bt', 'vidT', 'dsz', 'crop', 'mir', 'sharp', 'detail', 'gam', 'con', 'steps', 'mode', 'ncol', 'c0', 'c1', 'c2', 'paper']) U[n] = gl.getUniformLocation(pr, n);
+  for (const n of ['dep', 'depPrev', 'bt', 'vidT', 'dsz', 'crop', 'mir', 'sharp', 'detail', 'gam', 'con', 'steps', 'mode', 'ncol', 'c0', 'c1', 'c2', 'paper', 'lin', 'lh', 'ls', 'lsz']) U[n] = gl.getUniformLocation(pr, n);
   const tex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
   tDep = tex(0); tVid = tex(1); tPrev = tex(2);
-  gl.uniform1i(U.dep, 0); gl.uniform1i(U.vidT, 1); gl.uniform1i(U.depPrev, 2);
+  gl.uniform1i(U.dep, 0); gl.uniform1i(U.vidT, 1); gl.uniform1i(U.depPrev, 2); gl.uniform1i(U.lin, 3);
 }
+// line pass resources: half size (540 x 960), brightness in R16F when the browser can render to it (else 8 bit, with less time averaging)
+const LW = 540, LH = 960; let prL, prE, LF = [], LT = [], EF, ET, lcur = 0, haveL = false, lhalf = false; const LU = {}, EU = {};
+function initLines() {
+  lhalf = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+  const mk = (unit, half) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    if (half) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, LW, LH, 0, gl.RED, gl.HALF_FLOAT, null); else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, LW, LH, 0, gl.RED, gl.UNSIGNED_BYTE, null);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    const f = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, f); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0); return [t, f]; };
+  [LT[0], LF[0]] = mk(4, lhalf); [LT[1], LF[1]] = mk(5, lhalf); [ET, EF] = mk(3, false);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  prL = prog(VS, FSL); prE = prog(VS, FSE);
+  for (const n of ['vidT', 'Lp', 'crop', 'mir', 'amin', 'reset', 'lsz']) LU[n] = gl.getUniformLocation(prL, n);
+  for (const n of ['Lt', 'lsz', 'lo', 'hi']) EU[n] = gl.getUniformLocation(prE, n);
+}
+function runLines(c) {
+  const cur = lcur, nxt = 1 - lcur;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, LF[nxt]); gl.viewport(0, 0, LW, LH);
+  gl.useProgram(prL); gl.uniform1i(LU.vidT, 1); gl.uniform1i(LU.Lp, 4 + cur); gl.uniform4f(LU.crop, c.sx / c.vw, c.sy / c.vh, c.cw / c.vw, c.ch / c.vh);
+  gl.uniform1f(LU.mir, c.mir ? 1 : 0); gl.uniform1f(LU.amin, lhalf ? 0.3 : 0.55); gl.uniform1f(LU.reset, haveL ? 0 : 1); gl.uniform2f(LU.lsz, LW, LH);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, EF); gl.useProgram(prE); gl.uniform1i(EU.Lt, 4 + nxt); gl.uniform2f(EU.lsz, LW, LH); gl.uniform1f(EU.lo, 0.0025); gl.uniform1f(EU.hi, 0.025);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(pr); gl.viewport(0, 0, OW, OH); lcur = nxt; haveL = true;
+}
+if (gl) initLines();
 let pal = getPalette();
 onPalette((p) => { pal = p; });
-function render() {
+function render(fresh) {
   if (!gl || !M.have) return;
   if (upload) {                                              // new depth: R16F texture, linear filtered
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tDep);
@@ -119,6 +172,8 @@ function render() {
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, vid);
   const c = crop(), rgb = (a) => a.map((x) => x / 255), cols = pal.cols;
+  const lk = Math.max(0, val('dpli'));
+  if (lk > 0 && (fresh || !haveL)) runLines(c); else if (lk <= 0) haveL = false;
   const bf = Math.max(0, val('dpb'));                         // fade over the expected time to the next map
   gl.uniform1f(U.bt, bf > 0 ? Math.min(1, (performance.now() - M.tUp) / Math.max(16, M.interval * bf)) : 1);
   gl.uniform2f(U.dsz, M.w, M.h);
@@ -133,6 +188,7 @@ function render() {
   gl.uniform1f(U.ncol, pal.n);
   gl.uniform3fv(U.c0, rgb(cols[0])); gl.uniform3fv(U.c1, rgb(cols[pal.n === 3 ? 1 : 0])); gl.uniform3fv(U.c2, rgb(cols[cols.length - 1]));
   gl.uniform3fv(U.paper, rgb(pal.paper));
+  gl.uniform1f(U.lh, lk * 0.05); gl.uniform1f(U.ls, lk * 0.025); gl.uniform2f(U.lsz, LW, LH);
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 // ---------------------------------------------------------------- stats
@@ -156,7 +212,7 @@ function loop() {
   const fresh = vid.currentTime !== lastMedia; lastMedia = vid.currentTime;
   if (M.ready && !M.busy && (fresh || !M.have)) DM.infer();
   if (!M.have && M.ready) msg('Waiting for the first depth map...'); else if (M.have && $('#msg').textContent.startsWith('Waiting')) msg('');
-  render();
+  render(fresh);
 }
 
 // ---------------------------------------------------------------- UI
