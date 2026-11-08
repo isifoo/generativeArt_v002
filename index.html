@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261108101710">
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261108101710","./palette.js":"./palette.js?b=20261108101710","./colorwheel.js":"./colorwheel.js?b=20261108101710","./depthmodel.js":"./depthmodel.js?b=20261108101710"}}</script>
-<link rel="stylesheet" href="css/main.css?b=20261108101710">
+<meta name="build" content="20261108162335">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261108162335","./palette.js":"./palette.js?b=20261108162335","./colorwheel.js":"./colorwheel.js?b=20261108162335","./depthmodel.js":"./depthmodel.js?b=20261108162335"}}</script>
+<link rel="stylesheet" href="css/main.css?b=20261108162335">
 </head>
 <body>
 <div id="app">
@@ -17,10 +17,11 @@
   </div>
   <div id="newver" hidden style="position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9;background:#d23219;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer">New version available. Click to reload.</div>
   <div id="side">
-    <div class="row"><span class="row" id="versions"></span><button id="nodebtn" type="button" data-views="dollar5,linesv2">Nodes</button><button id="setbtn" type="button">Edit</button><button id="recbtn" type="button" title="Record the picture as it plays, in real time, and save the video">Record</button></div>
+    <div class="row"><span class="row" id="versions"></span><button id="nodebtn" type="button" data-views="dollar5,linesv2">Nodes</button><button id="setbtn" type="button">Edit</button><button id="recbtn" type="button" title="Record the picture as it plays, in real time, and save the video">Record</button><button id="cogbtn" type="button" title="Setup: which styles show in the menu (PIN)">&#9881;</button></div>
+    <div id="cogpanel" class="cogpanel" hidden><div class="note">Show these styles in the menu <button id="cogclose" type="button" title="Close">x</button></div><div id="coglist"></div></div>
     <div id="msg"></div>
     <div id="pinbox" class="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v2.66 (2026-11-08)</div>
+    <div class="note" id="ver">Generative Art v002 · v2.67 (2026-11-08)</div>
   </div>
 </div>
 
@@ -71,7 +72,7 @@
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
   const v = new URLSearchParams(location.search).get('view');
-  import(({ ishihara: './ishihara.js', depthdots: './dots.js', depthdotsv02: './dotsv02.js', depth: './depth.js', depth3d: './depth3d.js', dollar5: './lines.js', linesv2: './lines.js', windows: './windows.js', letters: './letters.js', camera: './camera.js' }[v] || './line.js') + '?b=' + b);
+  import(({ ishihara: './ishihara.js', depthdots: './dots.js', depthdotsv02: './dotsv02.js', eightbit: './letters.js', depth: './depth.js', depth3d: './depth3d.js', dollar5: './lines.js', linesv2: './lines.js', windows: './windows.js', letters: './letters.js', camera: './camera.js' }[v] || './line.js') + '?b=' + b);
 </script>
 </body>
 </html>

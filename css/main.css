@@ -96,6 +96,11 @@ input[type=color] { width:36px; height:24px; padding:0; border:1px solid var(--l
 
 /* ---------------------------------------------------------------- owner PIN (click the version line) */
 #ver { cursor:default; user-select:none; }
+.cogpanel { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:30; box-shadow:0 8px 30px #000a; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px 16px; display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow:auto; }
+.cogpanel[hidden] { display:none; }
+.cogpanel button { padding:1px 8px; margin-left:10px; }
+.cogpanel label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+#coglist { display:flex; flex-direction:column; gap:3px; }
 #ver.owner::after { content:' · owner'; color:var(--accent); }
 #pinbox input, .pinbox input { width:76px; text-align:center; letter-spacing:.4em; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:4px; padding:4px; font:inherit; }
 .pinbox input.bad { border-color:var(--accent); animation:shake .3s; }

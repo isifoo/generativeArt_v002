@@ -18,13 +18,21 @@ export const VERSIONS = [
   { id: 'dollar5', label: 'Dollar 5' },                         // node based line levels, the depth map as the matte (lines.js)
   { id: 'linesv2', label: 'Lines V2' },
   { id: 'windows', label: 'Windows' },
-  { id: 'letters', label: 'Letters' },                           // the camera as type on a grid, like the Coinbase / Buck piece (letters.js)                           // a night apartment block: the person is the lit windows (windows.js)                         // horizontal sine lines (Frequency, Amplitude) on the Dollar 5 nodes (lines.js)
+  { id: 'letters', label: 'Letters' },
+  { id: 'eightbit', label: '8bit' },                                // Letters engine with chunky pixel letters and flat colour steps (letters.js)                           // the camera as type on a grid, like the Coinbase / Buck piece (letters.js)                           // a night apartment block: the person is the lit windows (windows.js)                         // horizontal sine lines (Frequency, Amplitude) on the Dollar 5 nodes (lines.js)
 ];
 const qv = new URLSearchParams(location.search).get('view');
 export const VIEW = VERSIONS.some((v) => v.id === qv) ? qv : 'line';
+const HIDKEY = 'genArt002.hiddenStyles';                       // styles hidden from the style menu (Setup, owner PIN); the style you are in always stays
+function hiddenStyles() { try { const a = JSON.parse(localStorage.getItem(HIDKEY) || 'null'); return Array.isArray(a) ? a : null; } catch { return null; } }   // null = never set on this device
+function fillPick(sel, hidden) {
+  sel.textContent = '';
+  for (const v of VERSIONS) { if (hidden && hidden.includes(v.id) && v.id !== VIEW) continue; const o = document.createElement('option'); o.value = v.id; o.textContent = v.label; sel.append(o); }
+  sel.value = VIEW;
+}
 {                                                       // one menu for every style (the page reloads into the chosen style; the camera comes back at once)
   const sel = document.createElement('select'); sel.id = 'stylepick'; sel.title = 'Style';
-  for (const v of VERSIONS) { const o = document.createElement('option'); o.value = v.id; o.textContent = v.label; sel.append(o); }
+  fillPick(sel, hiddenStyles());
   sel.value = VIEW;
   sel.onchange = () => { if (sel.value !== VIEW) location.search = '?view=' + sel.value; };
   $('#versions').append(sel);
@@ -246,6 +254,7 @@ export const owner = { on: (() => { try { return localStorage.getItem(PINKEY) ==
 function showOwner() {
   $('#ownerrow').hidden = !owner.on; $('#ownerlock').hidden = owner.on; $('#ver').classList.toggle('owner', owner.on);
 }
+let cogWant = false, openCog = () => {};                      // the cogwheel asked for the PIN: open Setup once it is right
 const lock = () => { owner.on = false; try { localStorage.removeItem(PINKEY); } catch {} showOwner(); };
 // two ways in: the version line under the buttons, or the Owner button at the bottom of Edit (on a phone the panel covers the line)
 const openPin = (box) => { box.hidden = !box.hidden; if (!box.hidden) { const i = box.querySelector('input'); i.value = ''; i.focus(); } };
@@ -258,6 +267,7 @@ for (const box of document.querySelectorAll('.pinbox')) box.querySelector('input
   if (hashPin(v) === PIN_HASH) {
     owner.on = true; try { localStorage.setItem(PINKEY, '1'); } catch {}
     document.querySelectorAll('.pinbox').forEach((b) => { b.hidden = true; }); showOwner();
+    if (cogWant) { cogWant = false; openCog(); }
   } else { e.target.value = ''; e.target.classList.add('bad'); setTimeout(() => e.target.classList.remove('bad'), 500); }
 });
 showOwner();
@@ -270,6 +280,25 @@ const SITE = fetch('site-defaults.json?t=' + Date.now(), { cache: 'no-store' }).
   if (!pal) { const site = await SITE; pal = site && site[PALKEY]; }
   if (pal) restorePalette(pal);
 })();
+
+// ---------------------------------------------------------------- Setup (the cogwheel): tick which styles show in the style menu. Behind the owner PIN. Kept in this browser;
+// Owner > Copy settings includes the list, so it can become the site's default for every visitor (site-defaults.json).
+{
+  const pick = $('#stylepick'), panel = $('#cogpanel'), list = $('#coglist');
+  let hid = hiddenStyles();
+  SITE.then((site) => { if (hid === null && site && Array.isArray(site[HIDKEY])) { hid = site[HIDKEY]; fillPick(pick, hid); } });
+  const build = () => {
+    list.textContent = '';
+    for (const v of VERSIONS) {
+      const l = document.createElement('label'), c = document.createElement('input'); l.className = 'note'; c.type = 'checkbox'; c.dataset.id = v.id; c.checked = !(hid || []).includes(v.id); c.disabled = v.id === VIEW;
+      c.onchange = () => { hid = [...list.querySelectorAll('input')].filter((i) => !i.checked).map((i) => i.dataset.id); try { localStorage.setItem(HIDKEY, JSON.stringify(hid)); } catch {} fillPick(pick, hid); };
+      l.append(c, ' ' + v.label + (v.id === VIEW ? ' (you are here)' : '')); list.append(l);
+    }
+  };
+  openCog = () => { build(); panel.hidden = false; };
+  $('#cogbtn').onclick = () => { if (!panel.hidden) { panel.hidden = true; return; } if (owner.on) openCog(); else { cogWant = true; openPin($('#pinbox')); } };
+  $('#cogclose').onclick = () => { panel.hidden = true; };
+}
 
 // ---------------------------------------------------------------- defaults (per version + the palette)
 // Owner only: Set default saves every slider (value, max, on), every [data-save] control of this version, and the palette.
@@ -350,7 +379,7 @@ export function initDefaults(rev = '') {
   $('#copydef').onclick = async () => {
     if (!owner.on) return;
     const all = {};
-    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('genArt002.defaults.') || k === PALKEY) all[k] = JSON.parse(localStorage.getItem(k)); } } catch {}
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith('genArt002.defaults.') || k === PALKEY || k === HIDKEY) all[k] = JSON.parse(localStorage.getItem(k)); } } catch {}
     try { await navigator.clipboard.writeText(JSON.stringify(all, null, 1)); flash($('#copydef'), 'Copied'); } catch { flash($('#copydef'), 'Copy failed'); }
   };
 }

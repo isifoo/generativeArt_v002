@@ -1,11 +1,13 @@
 // LETTERS: the camera picture drawn with characters on a grid, like the Coinbase / Buck piece: white symbols (- + = < 0 # 1 & $) on one saturated colour.
 // The brightness under each character picks a symbol from a ramp (empty .. dense), so the subject is built out of type; a few faint symbols fill the empty ground.
 // Colours come from the universal palette (Edit > Colours): background = the dark colour, symbols = the light colours (and the paper colour at full brightness).
-import { $, msg, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
+import { $, VIEW, msg, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, noCam, drawCover, getPalette, onPalette } from './ui.js';
 import { loadPreset } from './palette.js';
 import { createDepthModel } from './depthmodel.js';
 
+const EB = VIEW === 'eightbit';          // 8bit = this same engine with chunky pixel letters, hard colour steps and fewer, bigger characters
 const RAMPS = {
+  eight: { label: '8-bit letters', chars: ' ioHXM' },
   coinbase: { label: 'Symbols (Coinbase)', chars: ' .-+=<0#1&$' },
   dollar: { label: 'Dollars and plus', chars: ' .-+=#$' },
   ascii: { label: 'Classic ASCII', chars: ' .:-=+*#%@' },
@@ -33,13 +35,14 @@ const SLIDERS = [
   { id: 'lbg', label: 'Faint symbols in the empty ground', min: 0, max: 1, step: 0.01, val: 0.12, off: 'none' },
   { id: 'lwt', label: 'Symbol weight', min: 0, max: 1, step: 0.01, val: 0.6, off: 'light' },
 ];
+if (EB) { const EBV = { lcol: 64, lasp: 1.5, lsz: 1, lgam: 1, lsm: 0.4, lshim: 0, lbg: 0, lwt: 1 }; for (const s of SLIDERS) if (s.id in EBV) { s.val = EBV[s.id]; s.off = String(EBV[s.id]); } }
 const P = {};
 const val = buildSliders(SLIDERS, P);
 const num = (id, d) => (P.on[id] === false ? d : P[id]);
-let ramp = 'coinbase';
+let ramp = EB ? 'eight' : 'coinbase';
 
 // this style opens with the electric blue palette (the palette is shared by every style; a saved default replaces it)
-loadPreset('electric');   // saved defaults (Save as default) are restored later by initDefaults and win
+loadPreset(EB ? 'retro8' : 'electric');   // saved defaults (Save as default) are restored later by initDefaults and win
 
 let depthNew = false, depthOn = false;
 const DM = createDepthModel((id, def) => (id === 'dpw' ? 0 : def), () => { depthNew = true; });
@@ -52,7 +55,7 @@ const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
 uniform sampler2D lvlT, atlasT;                           // brightness per character cell, the glyph atlas (white on black, one glyph per column)
-uniform vec2 res, cell; uniform float nG, shim, time, size, bgd, wt;
+uniform vec2 res, cell; uniform float nG, shim, time, size, bgd, wt, pixmode;
 uniform vec3 bgC, lowC, highC;
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
@@ -66,8 +69,8 @@ void main() {
   vec2 q = (loc - 0.5) / size + 0.5;
   float cov = 0.0;
   if (g > 0.5 && q.x > 0.0 && q.x < 1.0 && q.y > 0.0 && q.y < 1.0) cov = texture(atlasT, vec2((g + q.x) / nG, q.y)).r;
-  cov = smoothstep(0.5 - 0.45 * (1.0 - wt) - 0.2, 0.55 + 0.4 * wt, cov * (0.8 + 0.5 * wt));
-  vec3 ink = mix(lowC, highC, smoothstep(0.2, 0.9, lv));
+  cov = pixmode > 0.5 ? step(0.5, cov) : smoothstep(0.5 - 0.45 * (1.0 - wt) - 0.2, 0.55 + 0.4 * wt, cov * (0.8 + 0.5 * wt));       // 8bit: hard pixels
+  vec3 ink = pixmode > 0.5 ? mix(lowC, highC, (g - 1.0) / max(1.0, nG - 2.0)) : mix(lowC, highC, smoothstep(0.2, 0.9, lv));   // 8bit: one flat colour per symbol
   o = vec4(mix(bgC, ink, clamp(cov, 0.0, 1.0)), 1.0);
 }`;
 function prog(vs, fs) {
@@ -85,7 +88,7 @@ const pr = prog(VS, FS); gl.useProgram(pr);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 }
-const U = {}; for (const n of ['lvlT', 'atlasT', 'res', 'cell', 'nG', 'shim', 'time', 'size', 'bgd', 'wt', 'bgC', 'lowC', 'highC']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['lvlT', 'atlasT', 'res', 'cell', 'nG', 'shim', 'time', 'size', 'bgd', 'wt', 'pixmode', 'bgC', 'lowC', 'highC']) U[n] = gl.getUniformLocation(pr, n);
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
@@ -96,11 +99,13 @@ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tLvl); gl.texParame
 // ---------------------------------------------------------------- the glyph atlas: one 64 x 96 tile per symbol of the ramp, drawn with the browser's monospace font
 let nG = 1;
 function buildAtlas() {
-  const chars = [...RAMPS[ramp].chars], T = 64, TH = 96, c = document.createElement('canvas'); c.width = T * chars.length; c.height = TH;
-  const x = c.getContext('2d'); x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height);
-  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = `bold 78px ui-monospace, "Cascadia Mono", Consolas, Menlo, "Courier New", monospace`;
-  chars.forEach((ch, i) => { if (ch !== ' ') x.fillText(ch, i * T + T / 2, TH / 2 + 4); });
+  const chars = [...RAMPS[ramp].chars], T = EB ? 8 : 64, TH = EB ? 12 : 96, c = document.createElement('canvas'); c.width = T * chars.length; c.height = TH;
+  const x = c.getContext('2d', { willReadFrequently: true }); x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = `bold ${EB ? 11 : 78}px ui-monospace, "Cascadia Mono", Consolas, Menlo, "Courier New", monospace`;
+  chars.forEach((ch, i) => { if (ch !== ' ') x.fillText(ch, i * T + T / 2, TH / 2 + (EB ? 1 : 4)); });
+  if (EB) { const im = x.getImageData(0, 0, c.width, c.height), d = im.data; for (let i = 0; i < d.length; i += 4) { const v = d[i] > 110 ? 255 : 0; d[i] = d[i + 1] = d[i + 2] = v; } x.putImageData(im, 0, 0); }   // 8 x 12 pixel tiles, hard edged
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tAtlas);
+  const flt = EB ? gl.NEAREST : gl.LINEAR; gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, flt); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, flt);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); nG = chars.length;
 }
 buildAtlas();
@@ -144,7 +149,7 @@ function render() {
   const g = grid(), light = pal.cols[pal.cols.length - 1], mid = pal.n === 3 ? pal.cols[1] : light.map((x, i) => x * 0.8 + pal.cols[0][i] * 0.2);
   gl.useProgram(pr); gl.viewport(0, 0, OW, OH);
   gl.uniform2f(U.res, OW, OH); gl.uniform2f(U.cell, g.cw, g.ch); gl.uniform1f(U.nG, nG); gl.uniform1f(U.shim, num('lshim', 0.2)); gl.uniform1f(U.time, performance.now() / 1000 * num('lrate', 6));
-  gl.uniform1f(U.size, num('lsz', 0.92)); gl.uniform1f(U.bgd, num('lbg', 0.12)); gl.uniform1f(U.wt, num('lwt', 0.6));
+  gl.uniform1f(U.size, num('lsz', 0.92)); gl.uniform1f(U.bgd, num('lbg', 0.12)); gl.uniform1f(U.wt, num('lwt', 0.6)); gl.uniform1f(U.pixmode, EB ? 1 : 0);
   gl.uniform3fv(U.bgC, rgb(pal.cols[0])); gl.uniform3fv(U.lowC, rgb(mid)); gl.uniform3fv(U.highC, rgb(pal.paper));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
