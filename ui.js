@@ -12,7 +12,8 @@ export const VERSIONS = [
   { id: 'line', label: 'V1 Line' },
   { id: 'ishihara', label: 'Ishihara' },
   { id: 'depth', label: 'Depth' },
-  { id: 'depthdots', label: 'Depth Dots' },
+  { id: 'depthdots', label: 'DepthDotsv01' },
+  { id: 'depthdotsv02', label: 'DepthDotsv02' },                  // v01 plus 4 contrast hot spots with extra off-grid dots (dotsv02.js)
   { id: 'depth3d', label: 'Depth 3D' },
   { id: 'dollar5', label: 'Dollar 5' },                         // node based line levels, the depth map as the matte (lines.js)
   { id: 'linesv2', label: 'Lines V2' },
