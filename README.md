@@ -211,3 +211,8 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 - Extra detail when there is big movement (0.5): when much of the picture moves, the next maps run at a larger input (up to 1.5x, in 3 steps, dropping back after 1.5 s) and are brought back to the same map size, so nothing jumps; the cost is a lower rate during big movement.
 - The motion mask moved in front of the model and now works at a fixed map size.
 - Measured on the test clip: with the defaults the model made 10.2 maps per second against 18.5 with everything off, and the detail level stepped up when the clip moved. The flicker reduction itself is not measured (the clip has no camera noise); judge it on the live camera.
+
+## Letters restored to the v2.59 version (v2.63)
+- Letters is back exactly as in v2.59 (the file is identical to commit dcf16f5, checked with a zero-line diff). The Calm mode, patch and update-rate sliders from v2.60 and v2.61 are removed.
+- The depth steadiness group from v2.62 stays for the depth styles. Letters only uses depth when the Fade the background slider is above 0.
+- The calm version is not lost: it is in git as commit 9133901 (v2.61), if it is wanted back with a better design.
