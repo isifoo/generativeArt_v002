@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Generative Art v002</title>
-<meta name="build" content="20261108162335">
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261108162335","./palette.js":"./palette.js?b=20261108162335","./colorwheel.js":"./colorwheel.js?b=20261108162335","./depthmodel.js":"./depthmodel.js?b=20261108162335"}}</script>
-<link rel="stylesheet" href="css/main.css?b=20261108162335">
+<meta name="build" content="20261108163249">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/","./ui.js":"./ui.js?b=20261108163249","./palette.js":"./palette.js?b=20261108163249","./colorwheel.js":"./colorwheel.js?b=20261108163249","./depthmodel.js":"./depthmodel.js?b=20261108163249"}}</script>
+<link rel="stylesheet" href="css/main.css?b=20261108163249">
 </head>
 <body>
 <div id="app">
@@ -21,7 +21,7 @@
     <div id="cogpanel" class="cogpanel" hidden><div class="note">Show these styles in the menu <button id="cogclose" type="button" title="Close">x</button></div><div id="coglist"></div></div>
     <div id="msg"></div>
     <div id="pinbox" class="pinbox" hidden><input type="password" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="PIN"></div>
-    <div class="note" id="ver">Generative Art v002 · v2.67 (2026-11-08)</div>
+    <div class="note" id="ver">Generative Art v002 · v2.68 (2026-11-08)</div>
   </div>
 </div>
 
@@ -55,6 +55,7 @@
   <h2 class="grp keep" style="margin:12px 0 6px">Colours (every style)</h2>
   <div id="palette"></div>
   <div class="ctl" data-views="depth"><span>Look</span><select id="dpmode" data-save><option value="grey" selected>Grey (near = white)</option><option value="palnear">Palette (near = dark colour)</option><option value="palfar">Palette (near = light colour)</option></select></div>
+  <div class="ctl" data-views="depth"><span>Echo</span><select id="decmode" data-save><option value="max" selected>Maximum (ghost trails)</option><option value="add">Add (glowing)</option><option value="screen">Screen (soft)</option></select></div>
   <div class="ctl" data-views="depth3d"><span>Look</span><select id="d3look" data-save><option value="video" selected>Video on the surface</option><option value="clay">White clay</option><option value="palette">Palette by depth</option></select></div>
   <div class="ctl" data-views="depth3d"><span>Turn</span><span class="note">drag the picture to turn it, double click to reset</span></div>
   <div class="ctl" data-views="dollar2"><span>Layers</span><label class="note"><input type="checkbox" id="e2base" checked data-save> Dollar 2 lines (untick: only the Dollar overlay)</label></div>

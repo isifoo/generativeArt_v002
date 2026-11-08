@@ -25,6 +25,11 @@ const SLIDERS = [
   { id: 'dpd', label: 'Video detail', min: 0, max: 1, step: 0.01, val: 0.12, off: 'pure depth' },
   { id: 'dpli', label: 'Lines (cartoon pass)', min: 0, max: 2, step: 0.01, val: 0.6, off: 'no lines' },
   { id: 'dpk', label: 'Colour steps (0 = continuous)', min: 0, max: 16, step: 1, val: 0, off: 'continuous' },
+  { head: 'Echo (ghost, like the After Effects Echo effect)' },
+  { id: 'dech', label: 'Echoes', min: 0, max: 12, step: 1, val: 5, off: 'none' },
+  { id: 'dect', label: 'Echo time (s, between echoes)', min: 0.02, max: 0.15, step: 0.005, val: 0.08, off: '0.08' },
+  { id: 'dec0', label: 'Starting intensity', min: 0, max: 1, step: 0.01, val: 0.8, off: '0.8' },
+  { id: 'decd', label: 'Decay (each echo keeps this much)', min: 0.3, max: 0.98, step: 0.01, val: 0.75, off: '0.75' },
   { head: 'Motion' },
   { id: 'dps', label: 'Time smoothing', min: 0, max: 0.97, step: 0.01, val: 0.8, off: 'none' },
   { id: 'dpm', label: 'Motion follow', min: 0, max: 1, step: 0.01, val: 0.7, off: 'same smoothing everywhere' },
@@ -158,6 +163,53 @@ function runLines(c) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.useProgram(pr); gl.viewport(0, 0, OW, OH); lcur = nxt; haveL = true;
 }
 if (gl) initLines();
+// ECHO (like the AE Echo effect): the finished picture is kept 30 times a second in a ring of 64 small frames; the echoes are the picture as it was 1, 2, 3 ... echo-times ago,
+// each weaker than the one before (starting intensity x decay^n), laid under the live picture with Maximum, Add or Screen. Off (0 echoes) draws straight to the screen.
+const EL = 64, EW2 = 360, EH2 = 640, EMAX = 12; let FCt, FC, ringT, ringF, prCap, prEcho, eHead = -1, lastCap = 0; const ets = new Float64Array(EL).fill(-1e9), CU = {}, ECU = {};
+function initEcho() {
+  const VSN = `#version 300 es
+in vec2 p; out vec2 vt; void main() { vt = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
+  const FSCAP = `#version 300 es
+precision highp float; in vec2 vt; out vec4 o; uniform sampler2D src; void main() { o = texture(src, vt); }`;
+  const FSEC = `#version 300 es
+precision highp float; precision highp sampler2DArray;
+in vec2 vt; out vec4 o; uniform sampler2D cur; uniform sampler2DArray ring; uniform float lay[${EMAX}], wgt[${EMAX}]; uniform int n; uniform float mode;
+void main() {
+  vec3 col = texture(cur, vt).rgb;
+  for (int i = 0; i < ${EMAX}; i++) { if (i >= n) break;
+    vec3 g = texture(ring, vec3(vt, lay[i])).rgb * wgt[i];
+    col = mode < 0.5 ? max(col, g) : (mode < 1.5 ? col + g : 1.0 - (1.0 - col) * (1.0 - g)); }
+  o = vec4(min(col, vec3(1.0)), 1.0);
+}`;
+  const par = (tg) => { for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(tg, k, v); };
+  FCt = gl.createTexture(); gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, FCt); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, OW, OH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); par(gl.TEXTURE_2D);
+  FC = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, FC); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, FCt, 0);
+  ringT = gl.createTexture(); gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D_ARRAY, ringT); gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, EW2, EH2, EL); par(gl.TEXTURE_2D_ARRAY);
+  ringF = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  prCap = prog(VSN, FSCAP); prEcho = prog(VSN, FSEC);
+  CU.src = gl.getUniformLocation(prCap, 'src');
+  for (const n of ['cur', 'ring', 'lay', 'wgt', 'n', 'mode']) ECU[n] = gl.getUniformLocation(prEcho, n);
+}
+if (gl) initEcho();
+function echoPass(en) {                                         // the picture is in FC: keep it, then compose the echoes onto the screen
+  const now = performance.now(), T = Math.max(0.02, val('dect') < 0 ? 0.08 : P.dect) * 1000, w0 = val('dec0') < 0 ? 0.8 : P.dec0, dc = val('decd') < 0 ? 0.75 : P.decd;
+  if (now - lastCap >= 33) {                                    // at most 30 snapshots a second
+    eHead = (eHead + 1) % EL; ets[eHead] = now; lastCap = now;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ringF); gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, ringT, 0, eHead);
+    gl.viewport(0, 0, EW2, EH2); gl.useProgram(prCap); gl.uniform1i(CU.src, 7); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  const lay = new Float32Array(EMAX), wg = new Float32Array(EMAX); let n = 0;
+  for (let i = 0; i < Math.min(en, EMAX); i++) {                 // echo i = the snapshot nearest to (now - (i + 1) x echo time)
+    const target = now - (i + 1) * T; let best = -1, bd = 1e9;
+    for (let k = 0; k < EL; k++) { const d = Math.abs(ets[k] - target); if (d < bd) { bd = d; best = k; } }
+    if (best >= 0 && bd < 70) { lay[n] = best; wg[n] = w0 * Math.pow(dc, i); n++; }
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, OW, OH); gl.useProgram(prEcho);
+  gl.uniform1i(ECU.cur, 7); gl.uniform1i(ECU.ring, 8); gl.uniform1fv(ECU.lay, lay); gl.uniform1fv(ECU.wgt, wg); gl.uniform1i(ECU.n, n);
+  gl.uniform1f(ECU.mode, { max: 0, add: 1, screen: 2 }[$('#decmode').value] ?? 0);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  gl.useProgram(pr);
+}
 let pal = getPalette();
 onPalette((p) => { pal = p; });
 function render(fresh) {
@@ -189,7 +241,10 @@ function render(fresh) {
   gl.uniform3fv(U.c0, rgb(cols[0])); gl.uniform3fv(U.c1, rgb(cols[pal.n === 3 ? 1 : 0])); gl.uniform3fv(U.c2, rgb(cols[cols.length - 1]));
   gl.uniform3fv(U.paper, rgb(pal.paper));
   gl.uniform1f(U.lh, lk * 0.05); gl.uniform1f(U.ls, lk * 0.025); gl.uniform2f(U.lsz, LW, LH);
+  const en = Math.max(0, Math.round(val('dech')));
+  gl.bindFramebuffer(gl.FRAMEBUFFER, en > 0 ? FC : null);
   gl.viewport(0, 0, OW, OH); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  if (en > 0) echoPass(en);
 }
 // ---------------------------------------------------------------- stats
 function renderStats() {

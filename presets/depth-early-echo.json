@@ -1,0 +1,61 @@
+{
+ "app": "generativeArt_v002",
+ "view": "depth",
+ "settings": {
+  "s": {
+   "dsfps": {
+    "v": 30,
+    "max": 30,
+    "neg": false
+   },
+   "dsbl": {
+    "v": 0,
+    "max": 0.9,
+    "neg": false
+   },
+   "dsst": {
+    "v": 0,
+    "max": 1,
+    "neg": false
+   },
+   "dsfid": {
+    "v": 0,
+    "max": 1,
+    "neg": false
+   },
+   "dpli": {
+    "v": 0,
+    "max": 2,
+    "neg": false
+   },
+   "dpd": {
+    "v": 0.12,
+    "max": 1,
+    "neg": false
+   },
+   "dech": {
+    "v": 5,
+    "max": 12,
+    "neg": false
+   },
+   "dect": {
+    "v": 0.08,
+    "max": 0.15,
+    "neg": false
+   },
+   "dec0": {
+    "v": 0.8,
+    "max": 1,
+    "neg": false
+   },
+   "decd": {
+    "v": 0.75,
+    "max": 0.98,
+    "neg": false
+   }
+  },
+  "c": {
+   "decmode": "max"
+  }
+ }
+}

@@ -1,1 +1,8 @@
-{}
+{
+ "depth": [
+  {
+   "name": "Early simple + echo",
+   "file": "depth-early-echo.json"
+  }
+ ]
+}
