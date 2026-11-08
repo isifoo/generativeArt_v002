@@ -1,6 +1,6 @@
 # Generative Art v002
 
-Versions (each one is a button): V1 Line (WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), DepthDotsv01 (the Ishihara packing driven by the depth map) Depth 3D (the depth map as a lit 3D surface, three.js) Dollar (banknote engraving, one pixel shader) Dollar 2 (engraving from the engraver's procedure: clean tone, smooth direction field, evenly spaced streamlines) Dollar 3 (V1's growing line, thinner and calmer, with dash levels) and Dollar 4 (was Fractal Lines: node based line levels on a 6-level luma map) and Dollar 5 (Dollar 4 with the depth map as the matte).
+Versions (each one is a button): Line_v01 (was V1 Line; WebGPU, from generativeArt_v001), Ishihara (packed circles, Canvas 2D), Depth (depth map, WebGL2 look), DepthDotsv01 (the Ishihara packing driven by the depth map) Depth 3D (the depth map as a lit 3D surface, three.js) Dollar (banknote engraving, one pixel shader) Dollar 2 (engraving from the engraver's procedure: clean tone, smooth direction field, evenly spaced streamlines) Dollar 3 (V1's growing line, thinner and calmer, with dash levels) and Dollar 4 (was Fractal Lines: node based line levels on a 6-level luma map) and Dollar 5 (Dollar 4 with the depth map as the matte).
 
 - Live: https://isifoo.github.io/generativeArt_v002/
 - Settings button opens the slider panel. Every slider has a max field and a -1 on/off box.
@@ -232,3 +232,9 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 ## Depth echo (ghost) and the early simple look (v2.68)
 - Depth has an Echo group, like the After Effects Echo effect: `Echoes` (5, 0 = off), `Echo time` (0.08 s between echoes), `Starting intensity` (0.8), `Decay` (0.75), and an Echo operator select (Maximum = ghost trails, Add, Screen). The finished picture is snapshotted 30 times a second into a ring of 64 small frames (360 x 640, about 60 MB of GPU memory); echo n is the snapshot nearest to now - n x echo time, weighted intensity x decay^(n-1). With 0 echoes the picture is drawn straight to the screen as before.
 - Edit > Presets > `Early simple + echo` (presets/depth-early-echo.json): the Depth steadiness sliders off (30 maps per second, no averaging, no hold, no extra detail), Lines off, echo on. This is the settings-only way back to the v2.59 behaviour; no code was reverted.
+
+## Line_v01 and Line_v02 with a curve editor (v2.69)
+- `V1 Line` is now `Line_v01` (same engine, `?view=line`). New `Line_v02` (`?view=linev02`) runs the same engine in `line.js` (flag `LV2`, no copy) plus a curve editor (`curveedit.js`) at the top of Edit.
+- The curve decides how straight the line is at each point (the straightening force, 0.30 in V1): y up = straighter, y down = wigglier. 2 to 12 points (default 6), Bezier with draggable handles or Linear, Smooth (auto handles) and Reset buttons. The default is flat at 0.30, so Line_v02 starts identical to Line_v01. The curve becomes a 256 value table read by the `forces` shader (new storage binding 8).
+- `Curve reads` picks what x means: darkness of the picture under the point (light left, dark right), position top to bottom, left to right, or distance from the centre. `Curve strength` (slider, 1) mixes between the V1 value and the curve (0 = V1).
+- Not tested: iPad; very low point counts with extreme handles. The drawing wakes for a few frames when the curve changes and keeps evolving as the line grows, so a new shape takes a few seconds to show.

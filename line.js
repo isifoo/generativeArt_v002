@@ -1,5 +1,6 @@
 // Generative Art v002: V1 LINE only (WebGPU). Clean copy of the V1 engine from v001.
 // Video -> CLAHE darkness -> spacing field R -> differential growth -> draw.
+import { mountCurveEditor } from './curveedit.js';
 import { $, msg, hex, hold, VIEW, getPalette, onPalette, vid, cam, buildSliders, initDefaults, versionCheck, startCamera, drawCover, noCam } from './ui.js';
 const SW = 540, SH = 960, OW = 1080, OH = 1920, SCALE = 2, MAXN = 262144, MARGIN = 6;
 const CS = 4.16, GW = Math.floor(SW / CS) + 1, GH = Math.floor(SH / CS) + 1;
@@ -239,6 +240,7 @@ forces: /* wgsl */`
 @group(0) @binding(5) var<storage, read> R: array<f32>;
 @group(0) @binding(6) var<storage, read> wake: array<f32>;
 @group(0) @binding(7) var<storage, read_write> mv: array<vec4f>;
+@group(0) @binding(8) var<storage, read> curve: array<f32>;   // Line_v02: straightening along the curve editor (256 values)
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) g:vec3u) {
   let N = mt[0]; let i = g.x; if (i >= N) { return; }
@@ -250,7 +252,16 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
   var F = vec2f(0.0); var crowd = 1e9;
   if (act) {
     let ip = (i + N - 1u) % N; let inx = (i + 1u) % N;
-    F = ((pos[ip] + pos[inx])*0.5 - p)*u.tension;
+    var tn = u.tension;
+    if (u.p3 > 0.0) {                                       // Line_v02: the curve editor sets the straightening. x = darkness (from the spacing R), or the position, or the distance from the centre
+      var cx0 = 0.0; let md = i32(u.p4 + 0.5);
+      if (md == 0) { let s = clamp(log(max(Rn, 1e-3)/u.rmax)/min(log(max(u.rmin, 1e-3)/u.rmax), -1e-3), 0.0, 1.0); cx0 = s*s; }
+      else if (md == 1) { cx0 = p.y/f32(SH); } else if (md == 2) { cx0 = p.x/f32(SW); }
+      else { cx0 = length((p - vec2f(f32(SW), f32(SH))*0.5)/(vec2f(f32(SW), f32(SH))*0.5)); }
+      let fx = clamp(cx0, 0.0, 1.0)*255.0; let i0 = u32(fx); let i1 = min(i0 + 1u, 255u);
+      tn = mix(u.tension, mix(curve[i0], curve[i1], fx - f32(i0)), u.p3);
+    }
+    F = ((pos[ip] + pos[inx])*0.5 - p)*tn;
     let si = 1.3*Rn; let rc = i32(si/CS) + 1;
     let cx = clamp(i32(p.x/CS), 0, GW-1); let cy = clamp(i32(p.y/CS), 0, GH-1);
     for (var yy = max(cy - rc, 0); yy <= min(cy + rc, GH-1); yy++) {
@@ -471,7 +482,7 @@ kernel('rfield', ['u', 'ro', 'rw', 'rw', 'rw', 'ro', 'ro']);
 kernel('keymix', ['u', 'ro', 'rw']);
 kernel('gridclear', ['rw']);
 kernel('gridbuild', ['ro', 'ro', 'rw', 'rw']);
-kernel('forces', ['u', 'ro', 'ro', 'rw', 'ro', 'ro', 'ro', 'rw']);
+kernel('forces', ['u', 'ro', 'ro', 'rw', 'ro', 'ro', 'ro', 'rw', 'ro']);
 kernel('decide', ['ro', 'ro', 'ro', 'rw', 'u']);
 kernel('scan1', ['ro', 'ro', 'rw', 'rw']);
 kernel('scan2', ['rw', 'rw']);
@@ -510,6 +521,7 @@ const B = {
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
   s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
   du: mk(96, GPUBufferUsage.UNIFORM | CD),
+  curve: mk(256 * 4, S | CD),
 };
 const bu = (a) => { const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | CD }); device.queue.writeBuffer(b, 0, new Float32Array(a)); return b; };
 const BU = {
@@ -536,7 +548,7 @@ const G = {
   dilH: bg(K.dilate, [B.wake, B.wakeT, BU.dilH]), dilV: bg(K.dilate, [B.wakeT, B.wakeD, BU.dilV]),
   gridclear: bg(K.gridclear, [B.head]),
   gridbuild: bg(K.gridbuild, [B.meta, B.pos, B.head, B.nxt]),
-  forces: bg(K.forces, [B.u, B.meta, B.pos, B.head, B.nxt, B.R, B.wakeD, B.mv]),
+  forces: bg(K.forces, [B.u, B.meta, B.pos, B.head, B.nxt, B.R, B.wakeD, B.mv, B.curve]),
   decide: bg(K.decide, [B.meta, B.mv, B.R, B.cnt, B.u]),
   scan1: bg(K.scan1, [B.meta, B.cnt, B.scanOut, B.blockOff]),
   scan2: bg(K.scan2, [B.meta, B.blockOff]),
@@ -576,6 +588,7 @@ const IND_PTS = 0, IND_SCAN = 16;
 // When the box is off the slider reports -1 and the engine uses the "off" behaviour named here.
 const D3 = VIEW === 'dollar3';                             // Dollar 3: V1's mechanism, thinner and calmer, with dash levels
 const FL = VIEW === 'flines';                              // Fractal Lines: V1's line with one uniform spacing; width carries the tone
+const LV2 = VIEW === 'linev02';                            // Line_v02: Line_v01's engine plus a curve editor that decides how straight the line is, point by point
 const CALM = D3 || FL;                                     // both have their own curve sliders
 const SLIDERS_V1 = [
   { id: 'stroke', label: 'Stroke px', min: 1, max: 6, step: 0.25, val: 4.75, off: 'no line drawn' },
@@ -622,7 +635,9 @@ const SLIDERS_FL = [
   { id: 'smth', label: 'Smoothing passes', min: 3, max: 41, step: 2, val: 3, off: 'V1 (3)' },
   { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 6, off: 'line frozen' },
 ];
-const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : SLIDERS_V1;
+const SLIDERS_V2 = [...SLIDERS_V1, { head: 'Curviness (the curve editor above)' },
+  { id: 'cvamt', label: 'Curve strength', min: 0, max: 1, step: 0.01, val: 1, off: 'curve ignored: V1 straightening (0.30)' }];
+const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : LV2 ? SLIDERS_V2 : SLIDERS_V1;
 const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
 
 
@@ -647,7 +662,8 @@ const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
   const tension = CALM && P.on.tens ? P.tens : 0.30, jit = CALM && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
-  U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit]);
+  const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = LV2 ? ({ dark: 0, y: 1, x: 2, centre: 3 }[$('#cvmode').value] ?? 0) : 0;
+  U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit, cvA, cvM]);
   device.queue.writeBuffer(B.u, 0, U);
 }
 
@@ -957,6 +973,10 @@ $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };
 cam.onStart = () => { lastMedia = -1; resetSim(); };
 cam.onLoad = () => { resetSim(); };
+if (LV2) {                                                  // the curve editor: its table goes to the GPU, and the whole drawing wakes up to follow it
+  const flatTable = new Float32Array(256).fill(0.3); device.queue.writeBuffer(B.curve, 0, flatTable);
+  mountCurveEditor($('#cveditor'), (table) => { device.queue.writeBuffer(B.curve, 0, table); sim.boost = Math.max(sim.boost, 8); });
+} else device.queue.writeBuffer(B.curve, 0, new Float32Array(256).fill(0.3));
 initDefaults(D3 ? '.r2' : FL ? '.v1' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
 
 // ---------------------------------------------------------------- go

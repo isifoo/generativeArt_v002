@@ -9,7 +9,8 @@ export const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 // ---------------------------------------------------------------- versions (each one is a button)
 export const VERSIONS = [
   { id: 'camera', label: 'Camera' },                              // just the camera in real time, with a light grade (camera.js)
-  { id: 'line', label: 'V1 Line' },
+  { id: 'line', label: 'Line_v01' },
+  { id: 'linev02', label: 'Line_v02' },                            // Line_v01's engine plus the curve editor (line.js, curveedit.js)
   { id: 'ishihara', label: 'Ishihara' },
   { id: 'depth', label: 'Depth' },
   { id: 'depthdots', label: 'DepthDotsv01' },
