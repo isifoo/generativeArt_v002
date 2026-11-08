@@ -240,7 +240,7 @@ forces: /* wgsl */`
 @group(0) @binding(5) var<storage, read> R: array<f32>;
 @group(0) @binding(6) var<storage, read> wake: array<f32>;
 @group(0) @binding(7) var<storage, read_write> mv: array<vec4f>;
-@group(0) @binding(8) var<storage, read> curve: array<f32>;   // Line_v02: straightening along the curve editor (256 values)
+@group(0) @binding(8) var<storage, read> kap: array<f32>;      // Line_v02: the bend asked of each point by the pattern spline
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) g:vec3u) {
   let N = mt[0]; let i = g.x; if (i >= N) { return; }
@@ -252,16 +252,12 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
   var F = vec2f(0.0); var crowd = 1e9;
   if (act) {
     let ip = (i + N - 1u) % N; let inx = (i + 1u) % N;
-    var tn = u.tension;
-    if (u.p3 > 0.0) {                                       // Line_v02: the curve editor sets the straightening. x = darkness (from the spacing R), or the position, or the distance from the centre
-      var cx0 = 0.0; let md = i32(u.p4 + 0.5);
-      if (md == 0) { let s = clamp(log(max(Rn, 1e-3)/u.rmax)/min(log(max(u.rmin, 1e-3)/u.rmax), -1e-3), 0.0, 1.0); cx0 = s*s; }
-      else if (md == 1) { cx0 = p.y/f32(SH); } else if (md == 2) { cx0 = p.x/f32(SW); }
-      else { cx0 = length((p - vec2f(f32(SW), f32(SH))*0.5)/(vec2f(f32(SW), f32(SH))*0.5)); }
-      let fx = clamp(cx0, 0.0, 1.0)*255.0; let i0 = u32(fx); let i1 = min(i0 + 1u, 255u);
-      tn = mix(u.tension, mix(curve[i0], curve[i1], fx - f32(i0)), u.p3);
+    var tgt = (pos[ip] + pos[inx])*0.5;
+    if (u.p3 > 0.0) {                                       // Line_v02: the pattern spline. kap[i] = how much this point should bend (1/R) at its place in the pattern;
+      let t = pos[inx] - pos[ip]; let tl = length(t) + 1e-6; let nl = vec2f(-t.y, t.x)/tl; let h = tl*0.5;   // a point on a curve sits a little off the middle of its neighbours (kappa h^2 / 2)
+      tgt = tgt - nl*(clamp(kap[i], -2.5, 2.5)*h*h*0.5/Rn*u.p3);
     }
-    F = ((pos[ip] + pos[inx])*0.5 - p)*tn;
+    F = (tgt - p)*u.tension;
     let si = 1.3*Rn; let rc = i32(si/CS) + 1;
     let cx = clamp(i32(p.x/CS), 0, GW-1); let cy = clamp(i32(p.y/CS), 0, GH-1);
     for (var yy = max(cy - rc, 0); yy <= min(cy + rc, GH-1); yy++) {
@@ -370,14 +366,17 @@ compact: /* wgsl */`
 @group(0) @binding(4) var<storage, read> blockOff: array<u32>;
 @group(0) @binding(5) var<storage, read_write> pos: array<vec2f>;
 @group(0) @binding(6) var<uniform> u:U;
+@group(0) @binding(7) var<storage, read> ph: array<f32>;       // pattern position of each point (length along the line in R units)
+@group(0) @binding(8) var<storage, read_write> phN: array<f32>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) g:vec3u) {
   let N = mt[0]; let i = g.x; if (i >= N) { return; }
   let c = cnt[i]; if (c == 0u) { return; }
   let salt = mt[1]*16u;
   let base = scanOut[i] + blockOff[i/512u];
-  let p = mv[i].xy; pos[base] = p;
+  let p = mv[i].xy; pos[base] = p; phN[base] = ph[i];
   if (c == 2u) {
+    let inx = (i + 1u) % N; phN[base + 1u] = (ph[i] + select(ph[inx], ph[i] + 0.2, inx == 0u))*0.5;
     let q = mv[(i + 1u) % N].xy; let d = q - p;
     let nrm = vec2f(-d.y, d.x)/(length(d) + 1e-9);
     pos[base + 1u] = (p + q)*0.5 + nrm*rndn(i, salt + 11u)*u.p2;   // new point jitter (V1: 0.4)
@@ -392,6 +391,18 @@ fn main() {
   args[0] = (n + 63u)/64u; args[1] = 1u; args[2] = 1u;
   args[4] = (n + 511u)/512u; args[5] = 1u; args[6] = 1u;
   args[8] = 12u; args[9] = n; args[10] = 0u; args[11] = 0u;
+}`,
+kappa: /* wgsl */`
+@group(0) @binding(0) var<storage, read> mt: array<u32>;
+@group(0) @binding(1) var<storage, read> ph: array<f32>;
+@group(0) @binding(2) var<storage, read> curve: array<f32>;     // 256 bends over one full repeat, then the repeat length in R at 256
+@group(0) @binding(3) var<storage, read_write> kap: array<f32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) g:vec3u) {
+  let N = mt[0]; let i = g.x; if (i >= N) { return; }
+  let Lp = max(curve[256], 1.0);
+  let f = fract(ph[i]/Lp)*256.0; let i0 = u32(f) & 255u; let i1 = (i0 + 1u) & 255u;
+  kap[i] = mix(curve[i0], curve[i1], f - floor(f));
 }`,
 smooth: /* wgsl */`
 @group(0) @binding(0) var<storage, read> mt: array<u32>;
@@ -486,7 +497,8 @@ kernel('forces', ['u', 'ro', 'ro', 'rw', 'ro', 'ro', 'ro', 'rw', 'ro']);
 kernel('decide', ['ro', 'ro', 'ro', 'rw', 'u']);
 kernel('scan1', ['ro', 'ro', 'rw', 'rw']);
 kernel('scan2', ['rw', 'rw']);
-kernel('compact', ['ro', 'ro', 'ro', 'ro', 'ro', 'rw', 'u']);
+kernel('compact', ['ro', 'ro', 'ro', 'ro', 'ro', 'rw', 'u', 'ro', 'rw']);
+kernel('kappa', ['ro', 'ro', 'ro', 'rw']);
 kernel('finalize', ['rw', 'rw']);
 kernel('smooth', ['ro', 'ro', 'rw']);
 
@@ -521,7 +533,7 @@ const B = {
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
   s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
   du: mk(96, GPUBufferUsage.UNIFORM | CD),
-  curve: mk(256 * 4, S | CD),
+  curve: mk(257 * 4, S | CD), ph: mk(MAXN * 4, S | CD), phN: mk(MAXN * 4, S | CD), kap: mk(MAXN * 4, S),
 };
 const bu = (a) => { const b = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | CD }); device.queue.writeBuffer(b, 0, new Float32Array(a)); return b; };
 const BU = {
@@ -548,11 +560,12 @@ const G = {
   dilH: bg(K.dilate, [B.wake, B.wakeT, BU.dilH]), dilV: bg(K.dilate, [B.wakeT, B.wakeD, BU.dilV]),
   gridclear: bg(K.gridclear, [B.head]),
   gridbuild: bg(K.gridbuild, [B.meta, B.pos, B.head, B.nxt]),
-  forces: bg(K.forces, [B.u, B.meta, B.pos, B.head, B.nxt, B.R, B.wakeD, B.mv, B.curve]),
+  forces: bg(K.forces, [B.u, B.meta, B.pos, B.head, B.nxt, B.R, B.wakeD, B.mv, B.kap]),
+  kappa: bg(K.kappa, [B.meta, B.ph, B.curve, B.kap]),
   decide: bg(K.decide, [B.meta, B.mv, B.R, B.cnt, B.u]),
   scan1: bg(K.scan1, [B.meta, B.cnt, B.scanOut, B.blockOff]),
   scan2: bg(K.scan2, [B.meta, B.blockOff]),
-  compact: bg(K.compact, [B.meta, B.mv, B.cnt, B.scanOut, B.blockOff, B.pos, B.u]),
+  compact: bg(K.compact, [B.meta, B.mv, B.cnt, B.scanOut, B.blockOff, B.pos, B.u, B.ph, B.phN]),
   finalize: bg(K.finalize, [B.meta, B.args]),
   sm1: bg(K.smooth, [B.meta, B.pos, B.s1]), sm2: bg(K.smooth, [B.meta, B.s1, B.s2]), sm3: bg(K.smooth, [B.meta, B.s2, B.s3]),
   sm4: bg(K.smooth, [B.meta, B.s3, B.s2]),                  // extra smoothing (Dollar 3): s3 -> s2 -> s3
@@ -635,8 +648,8 @@ const SLIDERS_FL = [
   { id: 'smth', label: 'Smoothing passes', min: 3, max: 41, step: 2, val: 3, off: 'V1 (3)' },
   { id: 'iters', label: 'Steps / frame', min: 1, max: 12, step: 1, val: 6, off: 'line frozen' },
 ];
-const SLIDERS_V2 = [...SLIDERS_V1, { head: 'Curviness (the curve editor above)' },
-  { id: 'cvamt', label: 'Curve strength', min: 0, max: 1, step: 0.01, val: 1, off: 'curve ignored: V1 straightening (0.30)' }];
+const SLIDERS_V2 = [...SLIDERS_V1, { head: 'Pattern spline (the editor above)' },
+  { id: 'cvamt', label: 'Pattern strength', min: 0, max: 1.5, step: 0.01, val: 1, off: 'pattern ignored: plain V1 line' }];
 const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : LV2 ? SLIDERS_V2 : SLIDERS_V1;
 const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
 
@@ -662,7 +675,7 @@ const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
   const tension = CALM && P.on.tens ? P.tens : 0.30, jit = CALM && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
-  const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = LV2 ? ({ dark: 0, y: 1, x: 2, centre: 3 }[$('#cvmode').value] ?? 0) : 0;
+  const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = 0;
   U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit, cvA, cvM]);
   device.queue.writeBuffer(B.u, 0, U);
 }
@@ -718,9 +731,11 @@ function noiseField(seed) {
 device.queue.writeBuffer(B.na, 0, noiseField(11));
 device.queue.writeBuffer(B.nb, 0, noiseField(12));
 
+const PH_INIT = 0.233;                                      // pattern length per starting segment (R units); the line then stretches and splits, keeping about this much per R of length
 function resetSim() {
   const p0 = mooreStart(), n = p0.length / 2;
   device.queue.writeBuffer(B.pos, 0, p0);
+  { const ph0 = new Float32Array(n); for (let i = 0; i < n; i++) ph0[i] = i * PH_INIT; device.queue.writeBuffer(B.ph, 0, ph0); }   // pattern position: along the line, in R units
   device.queue.writeBuffer(B.meta, 0, new Uint32Array([n, 0, n, 0]));
   device.queue.writeBuffer(B.args, 0, new Uint32Array([Math.ceil(n / 64), 1, 1, 0, Math.ceil(n / 512), 1, 1, 0, 12, n, 0, 0]));
   sim.frame = 0; sim.time = 0; sim.boost = 0; sim.warmed = false;
@@ -819,11 +834,13 @@ function encodeField(enc) {
 function encodeStep(enc) {
   run(enc, 'gridclear', G.gridclear, [Math.ceil(GW * GH / 64)], 'sim: grid');
   run(enc, 'gridbuild', G.gridbuild, IND_PTS, 'sim: grid');
+  if (LV2) run(enc, 'kappa', G.kappa, IND_PTS, 'sim: pattern bend');
   run(enc, 'forces', G.forces, IND_PTS, 'sim: forces');
   run(enc, 'decide', G.decide, IND_PTS, 'sim: prune/grow decide');
   run(enc, 'scan1', G.scan1, IND_SCAN, 'sim: scan');
   run(enc, 'scan2', G.scan2, [1], 'sim: scan');
   run(enc, 'compact', G.compact, IND_PTS, 'sim: compact + insert');
+  if (LV2) enc.copyBufferToBuffer(B.phN, 0, B.ph, 0, MAXN * 4);
   run(enc, 'finalize', G.finalize, [1], 'sim: compact + insert');
 }
 function encodeDraw(enc) {
@@ -973,10 +990,22 @@ $('#key').onchange = (e) => { P.key = e.target.checked; sim.boost = 6; };
 $('#restart').onclick = () => { resetSim(); };
 cam.onStart = () => { lastMedia = -1; resetSim(); };
 cam.onLoad = () => { resetSim(); };
-if (LV2) {                                                  // the curve editor: its table goes to the GPU, and the whole drawing wakes up to follow it
-  const flatTable = new Float32Array(256).fill(0.3); device.queue.writeBuffer(B.curve, 0, flatTable);
-  mountCurveEditor($('#cveditor'), (table) => { device.queue.writeBuffer(B.curve, 0, table); sim.boost = Math.max(sim.boost, 8); });
-} else device.queue.writeBuffer(B.curve, 0, new Float32Array(256).fill(0.3));
+async function readBuf(buf, bytes) {                           // a GPU buffer back to the CPU (used by "Read from the result")
+  const st = device.createBuffer({ size: (bytes + 3) & ~3, usage: GPUBufferUsage.MAP_READ | CD }), enc = device.createCommandEncoder();
+  enc.copyBufferToBuffer(buf, 0, st, 0, (bytes + 3) & ~3); device.queue.submit([enc.finish()]); await st.mapAsync(GPUMapMode.READ);
+  const out = st.getMappedRange().slice(0); st.unmap(); st.destroy(); return out;
+}
+if (LV2) {                                                  // the pattern spline editor: its table goes to the GPU, and the whole drawing wakes up to follow it
+  mountCurveEditor($('#cveditor'), (table) => { device.queue.writeBuffer(B.curve, 0, table); sim.boost = Math.max(sim.boost, 8); }, async () => {
+    const N = new Uint32Array(await readBuf(B.meta, 16))[0], pos = new Float32Array(await readBuf(B.pos, N * 8)), Rf = new Float32Array(await readBuf(B.R, SW * SH * 4));
+    return { pos, rmax: eff().rmax, rOf: (x, y) => Rf[Math.min(SH - 1, Math.max(0, y | 0)) * SW + Math.min(SW - 1, Math.max(0, x | 0))] };
+  });
+  window.__phStats = async () => {                          // debug: pattern length per R of line length, and how far the pattern advances per segment
+    const N = new Uint32Array(await readBuf(B.meta, 16))[0], pos = new Float32Array(await readBuf(B.pos, N * 8)), ph = new Float32Array(await readBuf(B.ph, N * 4)), Rf = new Float32Array(await readBuf(B.R, SW * SH * 4));
+    let sl = 0, sp = 0, c = 0; for (let i = 0; i + 1 < N; i++) { const R = Rf[Math.min(SH - 1, pos[2 * i + 1] | 0) * SW + Math.min(SW - 1, pos[2 * i] | 0)]; if (R < 9) continue; const d = ph[i + 1] - ph[i]; if (d <= 0 || d > 2) continue; sl += Math.hypot(pos[2 * i + 2] - pos[2 * i], pos[2 * i + 3] - pos[2 * i + 1]) / R; sp += d; c++; }
+    return { N, light: c, lenPerSeg: sl / c, phasePerSeg: sp / c, ratio: sp / sl };
+  };
+}
 initDefaults(D3 ? '.r2' : FL ? '.v1' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
 
 // ---------------------------------------------------------------- go
