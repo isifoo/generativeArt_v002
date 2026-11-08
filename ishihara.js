@@ -9,6 +9,9 @@ import { createDepthModel, MODELS } from './depthmodel.js';
 // DEPTH DOTS (?view=depthdots) is this same engine with the depth model as the source instead of the video's brightness:
 // mode 'size': one colour, depth drives the dot size (near = big). Mode 'colour': random sizes, depth drives the palette colour.
 const DD = VIEW === 'depthdots';
+// ISHIHARA_V02 (?view=ishiharav02) is this same engine from the video, with one colour and the size as the only carrier of contrast:
+// bright = small circles with more room between them, dark = big circles packed close, and the size follows the tone smoothly (a soft curve on a blurred tone).
+const IS2 = VIEW === 'ishiharav02';
 
 const SW = 540, SH = 960, SCALE = 2;          // circle space (sim px), canvas is 2x
 const FW = 135, FH = 240;                     // tone field, 4 sim px per cell
@@ -78,13 +81,14 @@ const SLIDERS_DD = [
   { id: 'ihhy', label: 'Change threshold', min: 0, max: 1, step: 0.01, val: 0.6, off: 'no hold: follows every change' },
 ];
 const SLIDERS = DD ? SLIDERS_DD : SLIDERS_ISHIHARA;
+if (IS2) { const IV = { ihl: 0.9, ihsc: 2.2, ihmax: 12, ihmin: 1.6, ihsr: 0.08, ihg: 2, ihgd: 0.8, ihvr: 0, ihv: 0, ihhj: 0, ihf: 0.45 }; for (const s of SLIDERS) if (s.id in IV) s.val = IV[s.id]; }
 const P = { pal: 'classic', inv: false, prev: false, ddmode: 'size' };
 const val = buildSliders(SLIDERS, P);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 function eff() {
   let mx = val('ihmax'), mn = val('ihmin');
   if (mx < 0 && mn < 0) { mx = mn = 8; } else if (mx < 0) { mx = mn; } else if (mn < 0) { mn = mx; }
-  return {
+  const E = {
     lo: val('ihlo'), hi: val('ihlo'), local: Math.max(0, val('ihl')), lrad: 10,   // local contrast radius: 10 cells = 40 px
     th: P.on.ihth ? P.ihth : 0,
     vcon: val('ihc'), levels: 0,
@@ -94,6 +98,7 @@ function eff() {
     dsens: 1, scon: val('ihsc'), srand: Math.max(0, val('ihsr')), gap: Math.max(0, val('ihg')), gdark: P.on.ihgd ? P.ihgd : 0, fill: Math.max(0, val('ihfl')), wig: Math.max(0, val('ihw')), wigs: Math.max(0, val('ihws')),
     cease: val('ihe'), sease: val('ihse'), repack: Math.max(0, val('ihrp')), smooth: Math.max(0, val('ihf')), hy: Math.max(0, val('ihhy')),
   };
+  return IS2 ? { ...E, vrange: 0, vvar: 0, hjit: 0, sizeDetail: 0 } : E;       // Ishihara_v02: one flat colour, size from the tone alone
 }
 // contrast curve: steepness c around centre m, stretched so 0 -> 0 and 1 -> 1; c < 0 (off) = linear
 function curve(t, c, m) {
@@ -180,6 +185,7 @@ function updateField() {
   // local contrast: push each pixel away from its neighbourhood mean
   if (e.local > 0) { boxBlur(gray, mean, e.lrad); for (let i = 0; i < N; i++) baseNow[i] = clamp01(gray[i] + e.local * (gray[i] - mean[i]) + e.th); }
   else for (let i = 0; i < N; i++) baseNow[i] = clamp01(gray[i] + e.th);
+  if (IS2) { boxBlur(baseNow, mean, 2); baseNow.set(mean); }   // Ishihara_v02: a softer tone, so the sizes change gradually
   // detail: gradient magnitude, normalised by its 95th percentile
   for (let y = 0; y < FH; y++) for (let x = 0; x < FW; x++) {
     const i = y * FW + x, xl = x > 0 ? -1 : 0, xr = x < FW - 1 ? 1 : 0, yu = y > 0 ? -FW : 0, yd = y < FH - 1 ? FW : 0;
@@ -208,11 +214,11 @@ function sample(a, x, y) {
 // the three drivers, from the base tone t (and edge for size)
 // DEPTH DOTS: t is depth (0 far .. 1 near). Size mode: one colour (the dark colour), near = big. Colour mode: palette by depth, random sizes.
 const ddT = (t, e) => curve(P.inv ? 1 - t : t, e.vcon, 0.5);
-const valueOf = DD ? () => 0.5 : (t, e) => { let v = curve(t, e.vcon, fieldInfo.med); if (e.levels) v = Math.round(v * (e.levels - 1)) / (e.levels - 1); return P.inv ? 1 - v : v; };
-const hueOf = DD ? (t, e) => (P.ddmode === 'colour' ? 1 - ddT(t, e) : 0) : (t, e) => { const h = curve(t, e.hcon, e.hsplit); return P.inv ? 1 - h : h; };
+const valueOf = DD || IS2 ? () => 0.5 : (t, e) => { let v = curve(t, e.vcon, fieldInfo.med); if (e.levels) v = Math.round(v * (e.levels - 1)) / (e.levels - 1); return P.inv ? 1 - v : v; };
+const hueOf = IS2 ? () => 0 : DD ? (t, e) => (P.ddmode === 'colour' ? 1 - ddT(t, e) : 0) : (t, e) => { const h = curve(t, e.hcon, e.hsplit); return P.inv ? 1 - h : h; };
 // gap at a tone: + gap by darkness = light areas get more room, dark areas pack tighter (- = the other way)
 const gapAt = (t, e) => e.gap * Math.max(0, 1 + e.gdark * ((P.inv ? 1 - t : t) - 0.5) * 2);
-const sizeOf = DD ? (t, ed, e) => (P.ddmode === 'colour' ? 0.5 : 1 - ddT(t, e)) : (t, ed, e) => curve(Math.min(1, e.sizeDark * (1 - (P.inv ? 1 - t : t)) + e.sizeDetail * Math.min(1, ed * e.dsens)), e.scon, 0.5);
+const sizeOf = IS2 ? (t, ed, e) => curve(P.inv ? 1 - t : t, e.scon, 0.5) : DD ? (t, ed, e) => (P.ddmode === 'colour' ? 0.5 : 1 - ddT(t, e)) : (t, ed, e) => curve(Math.min(1, e.sizeDark * (1 - (P.inv ? 1 - t : t)) + e.sizeDetail * Math.min(1, ed * e.dsens)), e.scon, 0.5);
 
 // ---------------------------------------------------------------- circles (structure of arrays)
 const C = {
