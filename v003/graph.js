@@ -11,7 +11,27 @@ export class Graph {
     if (id) { const k = +String(id).replace(/\D/g, ''); if (k >= uid) uid = k + 1; }
     this.nodes.push(n); return n;
   }
-  removeNode(id) { this.nodes = this.nodes.filter((n) => n.id !== id); this.links = this.links.filter((l) => l.from !== id && l.to !== id); }
+  // The links through a node are kept: its first input's source is joined to everything its outputs fed (as in Houdini).
+  bridgeAround(id) {
+    const ins = this.links.filter((l) => l.to === id), outs = this.links.filter((l) => l.from === id); if (!ins.length || !outs.length) return;
+    const n = this.node(id), order = NODES[n.type].inputs.map((p) => p.id); ins.sort((a, b) => order.indexOf(a.toPort) - order.indexOf(b.toPort));
+    const src = ins[0]; for (const o of outs) this.connect(src.from, src.fromPort, o.to, o.toPort);
+  }
+  removeNode(id, bridge = true) { if (bridge) this.bridgeAround(id); this.nodes = this.nodes.filter((n) => n.id !== id); this.links = this.links.filter((l) => l.from !== id && l.to !== id); }
+  detachNode(id) { this.bridgeAround(id); this.links = this.links.filter((l) => l.from !== id && l.to !== id); }
+  // can this unconnected node be put into the middle of a link? returns the two ports to use
+  insertPorts(nodeId, linkId) {
+    const n = this.node(nodeId), l = this.links.find((q) => q.id === linkId); if (!n || !l || l.from === nodeId || l.to === nodeId) return null;
+    if (this.links.some((q) => q.from === nodeId || q.to === nodeId)) return null;
+    const A = this.node(l.from), B = this.node(l.to), tIn = this.portType(A, 'out', l.fromPort), tOut = this.portType(B, 'in', l.toPort), d = NODES[n.type];
+    const pin = d.inputs.find((p) => p.type === tIn), pout = d.outputs.find((p) => p.type === tOut); return pin && pout ? { pin: pin.id, pout: pout.id } : null;
+  }
+  insertOnLink(nodeId, linkId) {
+    const ports = this.insertPorts(nodeId, linkId); if (!ports) return false; const l = this.links.find((q) => q.id === linkId), old = { ...l };
+    this.disconnect(linkId);
+    if (this.connect(old.from, old.fromPort, nodeId, ports.pin) && this.connect(nodeId, ports.pout, old.to, old.toPort)) return true;
+    this.links = this.links.filter((q) => q.from !== nodeId && q.to !== nodeId); this.connect(old.from, old.fromPort, old.to, old.toPort); return false;
+  }
   portType(n, side, id) { const d = NODES[n.type]; const p = (side === 'out' ? d.outputs : d.inputs).find((q) => q.id === id); return p ? p.type : null; }
   reaches(a, b, seen = new Set()) {                        // can a reach b by following links forward?
     if (a === b) return true; if (seen.has(a)) return false; seen.add(a);

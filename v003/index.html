@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GenerativeArt v003</title>
-<meta name="build" content="20261109204500">
-<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109204500","../colorwheel.js":"../colorwheel.js?b=20261109204500","./slider.js":"./slider.js?b=20261109204500","./gl.js":"./gl.js?b=20261109204500","./nodes.js":"./nodes.js?b=20261109204500","./graph.js":"./graph.js?b=20261109204500","./editor.js":"./editor.js?b=20261109204500"}}</script>
-<link rel="stylesheet" href="../css/main.css?b=20261109204500">
-<link rel="stylesheet" href="v3.css?b=20261109204500">
+<meta name="build" content="20261109213000">
+<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109213000","../colorwheel.js":"../colorwheel.js?b=20261109213000","./slider.js":"./slider.js?b=20261109213000","./gl.js":"./gl.js?b=20261109213000","./nodes.js":"./nodes.js?b=20261109213000","./graph.js":"./graph.js?b=20261109213000","./editor.js":"./editor.js?b=20261109213000","./board.js":"./board.js?b=20261109213000"}}</script>
+<link rel="stylesheet" href="../css/main.css?b=20261109213000">
+<link rel="stylesheet" href="v3.css?b=20261109213000">
 </head>
 <body class="v3">
 <video id="vid" muted loop playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
@@ -22,6 +22,8 @@
     <button id="savep" type="button" title="Download this node graph as a file">Save patch</button>
     <button id="loadp" type="button" title="Load a patch file">Load patch</button><input id="pfile" type="file" accept=".json,application/json" hidden>
     <button id="reset" type="button" title="Back to the starting graph">Reset graph</button>
+    <span class="sep"></span>
+    <button id="boardbtn" type="button" title="The chart of every node, built or wished for. Claude reads it.">Node board</button>
   </div>
 </header>
 <div id="msg"></div>
@@ -30,6 +32,7 @@
   <section id="gr"></section>
   <aside id="pn"><div id="params"></div><div id="colours"></div></aside>
 </main>
+<section id="board" hidden></section>
 <script type="module">
   const b = document.querySelector('meta[name=build]').content;
   import('./app.js?b=' + b);

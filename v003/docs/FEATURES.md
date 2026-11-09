@@ -28,3 +28,9 @@ Status: P planned, B built and tested in the browser pane, waiting for Gerry's i
 | 22 | Features chart page inside the app | P | v3.2 | this file as data |
 | 23 | Record / export | P | v3.3 | |
 | 24 | Camera angle / sway / turn controls | D | | not wanted |
+| 25 | Wiggle a node to pull it out of its links (neighbours join up) | B | v3.0.1 | tested with simulated mouse events |
+| 26 | Link snap: a wide reach finds the nearest matching dot while dragging | B | v3.0.1 | 70 px reach |
+| 27 | Delete a node: the links through it stay joined | B | v3.0.1 | |
+| 28 | Drop a node on a link: it is inserted in the middle | B | v3.0.1 | link lights up gold |
+| 29 | Node board (chart of nodes, linked to docs/NODE_BOARD.json) | B | v3.0.1 | Chrome / Edge file link; Claude reads the file |
+| 30 | 9 more nodes: Noise, Blur, Edge detect, Threshold, Mosaic, Displace, Track matte, Mix, Echo | B | v3.0.1 | each produces a picture in the pane test |

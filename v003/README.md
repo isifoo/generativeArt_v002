@@ -9,3 +9,8 @@ v3.0 (the frame): a node graph, a parameters panel and a preview.
 - Not in v3.0: density driver, line generators, draw nodes, Tell Claude notes (see docs/FEATURES.md).
 Docs: docs/REQUIREMENTS.md, CATALOGUE.md, FEATURES.md, DEV.md.
 Tested: browser pane with the mouse (desktop and tablet layout). NOT yet tested on a real iPad touch or a live camera.
+
+## v3.0.1
+- Nodes added: Noise, Blur, Edge detect, Threshold, Mosaic, Displace, Track matte, Mix, Echo. Families now Source, Image, Distort, Composite, Time, Colour, Output.
+- Editor: wiggle a node to pull it out of its links; delete or wiggle keeps the neighbours joined; a node dropped on a link is inserted into it; dragging a link snaps to the nearest matching dot within 70 px.
+- Node board (button at the top): a chart of every node built or wished for. Link it to docs/NODE_BOARD.json (Link file) so Claude reads the same chart.

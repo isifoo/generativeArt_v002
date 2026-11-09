@@ -4,6 +4,7 @@ import { NODES } from './nodes.js';
 import { Graph, defaultGraph } from './graph.js';
 import { createEditor } from './editor.js';
 import { createSlider } from './slider.js';
+import { createBoard } from './board.js';
 import { getPalette, mountPaletteEditor, serialize as serializePalette, restore as restorePalette } from '../palette.js';
 
 const $ = (s) => document.querySelector(s);
@@ -98,6 +99,10 @@ showParams(null);
   setInterval(() => { const cur = JSON.stringify(serializePalette()); if (cur !== setInterval.last) { setInterval.last = cur; ls.set(PK, JSON.parse(cur)); } }, 1500);
 }
 
+// ---------------------------------------------------------------- node board (the chart Gerry and Claude both write in)
+const board = createBoard($('#board'));
+$('#boardbtn').onclick = () => board.toggle();
+
 // ---------------------------------------------------------------- patch files and reset
 $('#savep').onclick = () => { const b = new Blob([JSON.stringify({ app: 'GenerativeArt_v003', graph: graph.toJSON(), palette: serializePalette() }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'patch.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
 $('#loadp').onclick = () => $('#pfile').click();
@@ -109,7 +114,7 @@ $('#pfile').onchange = async (e) => {
 $('#reset').onclick = () => { graph = defaultGraph(); editor.setGraph(graph); save(); };
 
 // ---------------------------------------------------------------- frame loop
-const targets = new WeakMap();
+const black = G.texture(2, 2);
 function stateOf(n, key) { n.state = n.state || {}; return n.state[key] || (n.state[key] = G.target()); }
 let last = performance.now(), frames = 0, ms = 0, t0 = last, fps = 0;
 function frame(now) {
@@ -120,7 +125,7 @@ function frame(now) {
   if (video.ready) { video.w = vid.videoWidth; video.h = vid.videoHeight; G.upload(video.tex, vid); }
   const pal = getPalette();
   graph.nodes.forEach((n) => { n.state = n.state || {}; });
-  const shown = graph.evaluate({ g: G, W, H, time: now / 1000, dt, pal, video, state: stateOf });
+  const shown = graph.evaluate({ g: G, W, H, time: now / 1000, dt, pal, video, black, state: stateOf });
   if (shown) G.present(shown);
   G.gl.finish && 0;
   ms += performance.now() - a; frames++;

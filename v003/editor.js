@@ -24,6 +24,7 @@ export function createEditor(root, graph, cb) {
 
   // ---------------------------------------------------------------- drawing
   function linkPath(a, b) { const dx = Math.max(40, Math.abs(b.x - a.x) * 0.5); return `M${a.x},${a.y} C${a.x + dx},${a.y} ${b.x - dx},${b.y} ${b.x},${b.y}`; }
+  let dropLink = null;                                          // a link a dragged node is hovering over (it would be inserted there)
   let temp = null;                                              // a link being dragged: { a: {x,y}, b: {x,y}, ok }
   function drawLinks() {
     svg.textContent = '';
@@ -32,7 +33,7 @@ export function createEditor(root, graph, cb) {
       const ai = NODES[A.type].outputs.findIndex((p) => p.id === l.fromPort), bi = NODES[B.type].inputs.findIndex((p) => p.id === l.toPort);
       const d = linkPath(portXY(A, 'out', ai), portXY(B, 'in', bi));
       const hit = document.createElementNS(NS, 'path'); hit.setAttribute('d', d); hit.setAttribute('class', 'g-hit'); hit.dataset.link = l.id; svg.append(hit);
-      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); p.setAttribute('class', 'g-link' + (sel && sel.kind === 'link' && sel.id === l.id ? ' sel' : '')); svg.append(p);
+      const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); p.setAttribute('class', 'g-link' + (sel && sel.kind === 'link' && sel.id === l.id ? ' sel' : '') + (dropLink === l.id ? ' drop' : '')); svg.append(p);
     }
     if (temp) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', linkPath(temp.a, temp.b)); p.setAttribute('class', 'g-link temp'); svg.append(p); }
   }
@@ -64,17 +65,17 @@ export function createEditor(root, graph, cb) {
   surface.addEventListener('pointerdown', (e) => {
     if (e.button > 0 && e.pointerType === 'mouse') return;
     const port = e.target.closest('.port'), nodeEl = e.target.closest('.g-node'), hit = e.target.closest('.g-hit');
-    surface.setPointerCapture(e.pointerId); moved = false; touched = true;
+    try { surface.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ } moved = false; touched = true;
     if (port) { startLink(e, port); e.preventDefault(); return; }
-    if (nodeEl && !ptrs.size) { const n = G.node(nodeEl.dataset.id), g0 = toGraph(e.clientX, e.clientY); nodeDrag = { n, dx: g0.x - n.x, dy: g0.y - n.y, id: e.pointerId }; select({ kind: 'node', id: n.id }); e.preventDefault(); return; }
+    if (nodeEl && !ptrs.size) { const n = G.node(nodeEl.dataset.id), g0 = toGraph(e.clientX, e.clientY); nodeDrag = { n, dx: g0.x - n.x, dy: g0.y - n.y, id: e.pointerId, wig: { lx: e.clientX, sx: e.clientX, dir: 0, rev: [] } }; select({ kind: 'node', id: n.id }); e.preventDefault(); return; }
     if (hit) { select({ kind: 'link', id: hit.dataset.link }); return; }
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), s: view.s }; }
   });
   surface.addEventListener('pointermove', (e) => {
-    if (linkDrag && e.pointerId === linkDrag.id) { const g = toGraph(e.clientX, e.clientY); temp.b = g; drawLinks(); highlightTargets(e); return; }
+    if (linkDrag && e.pointerId === linkDrag.id) { const g = toGraph(e.clientX, e.clientY); temp.b = g; highlightTargets(g); drawLinks(); return; }
     if (nodeDrag && e.pointerId === nodeDrag.id) { const g = toGraph(e.clientX, e.clientY); nodeDrag.n.x = g.x - nodeDrag.dx; nodeDrag.n.y = g.y - nodeDrag.dy; moved = true;
-      const el = nodesEl.querySelector(`[data-id="${nodeDrag.n.id}"]`); if (el) { el.style.left = nodeDrag.n.x + 'px'; el.style.top = nodeDrag.n.y + 'px'; } drawLinks(); return; }
+      const el = nodesEl.querySelector(`[data-id="${nodeDrag.n.id}"]`); if (el) { el.style.left = nodeDrag.n.x + 'px'; el.style.top = nodeDrag.n.y + 'px'; } wiggle(e); dropLink = linkNear(nodeDrag.n); drawLinks(); return; }
     const p = ptrs.get(e.pointerId); if (!p) return;
     const px = p.x, py = p.y; p.x = e.clientX; p.y = e.clientY; moved = true;
     if (ptrs.size === 1) { view.x += e.clientX - px; view.y += e.clientY - py; applyView(); }
@@ -85,7 +86,7 @@ export function createEditor(root, graph, cb) {
   });
   const up = (e) => {
     if (linkDrag && e.pointerId === linkDrag.id) finishLink(e);
-    if (nodeDrag && e.pointerId === nodeDrag.id) { nodeDrag = null; if (moved) changed(); }
+    if (nodeDrag && e.pointerId === nodeDrag.id) { const nd = nodeDrag; nodeDrag = null; if (dropLink && G.insertOnLink(nd.n.id, dropLink)) { dropLink = null; render(); changed(); } else { dropLink = null; drawLinks(); if (moved) changed(); } }
     if (ptrs.has(e.pointerId)) { const wasTap = ptrs.size === 1 && !moved; ptrs.delete(e.pointerId); pinch = null; if (wasTap) select(null); }
     try { surface.releasePointerCapture(e.pointerId); } catch { /* released */ }
   };
@@ -106,18 +107,53 @@ export function createEditor(root, graph, cb) {
     const i = NODES[n.type].outputs.findIndex((q) => q.id === pid);
     linkDrag = { id: e.pointerId, from: { node: n.id, port: pid } }; temp = { a: portXY(n, 'out', i), b: toGraph(e.clientX, e.clientY) }; drawLinks();
   }
-  function portAt(e) { const el = document.elementFromPoint(e.clientX, e.clientY); return el && el.closest ? el.closest('.port') : null; }
-  function highlightTargets(e) {
+  // The nearest port that could take the link being dragged, within a generous reach (it suggests the connection before the cursor is on the dot).
+  const REACH = 70;                                             // screen pixels
+  function nearestPort(g) {
+    let best = null, bd = REACH / view.s;
+    for (const n of G.nodes) {
+      const d = NODES[n.type];
+      if (linkDrag.from) d.inputs.forEach((p, i) => { if (G.canConnect(linkDrag.from.node, linkDrag.from.port, n.id, p.id)) { const q = portXY(n, 'in', i), dd = Math.hypot(q.x - g.x, q.y - g.y); if (dd < bd) { bd = dd; best = { node: n.id, side: 'in', port: p.id, pos: q }; } } });
+      else if (linkDrag.to) d.outputs.forEach((p, i) => { if (G.canConnect(n.id, p.id, linkDrag.to.node, linkDrag.to.port)) { const q = portXY(n, 'out', i), dd = Math.hypot(q.x - g.x, q.y - g.y); if (dd < bd) { bd = dd; best = { node: n.id, side: 'out', port: p.id, pos: q }; } } });
+    }
+    return best;
+  }
+  let snap = null;
+  function highlightTargets(g) {
     nodesEl.querySelectorAll('.port.hot').forEach((p) => p.classList.remove('hot'));
-    const p = portAt(e); if (!p || !linkDrag.from) return;
-    if (p.dataset.side === 'in' && G.canConnect(linkDrag.from.node, linkDrag.from.port, p.dataset.node, p.dataset.port)) p.classList.add('hot');
+    snap = nearestPort(g); if (!snap) return;
+    temp.b = snap.pos;                                          // the dragged end jumps to the port it would connect to
+    const el = nodesEl.querySelector(`.port[data-node="${snap.node}"][data-side="${snap.side}"][data-port="${snap.port}"]`); if (el) el.classList.add('hot');
   }
   function finishLink(e) {
-    const p = portAt(e), d = linkDrag; linkDrag = null; temp = null; nodesEl.querySelectorAll('.port.hot').forEach((x) => x.classList.remove('hot'));
+    const d = linkDrag, s = snap; linkDrag = null; temp = null; snap = null; nodesEl.querySelectorAll('.port.hot').forEach((x) => x.classList.remove('hot'));
     let did = false;
-    if (p && d.from && p.dataset.side === 'in') did = G.connect(d.from.node, d.from.port, p.dataset.node, p.dataset.port);
-    else if (p && d.to && p.dataset.side === 'out') did = G.connect(p.dataset.node, p.dataset.port, d.to.node, d.to.port);
+    if (s && d.from) did = G.connect(d.from.node, d.from.port, s.node, s.port);
+    else if (s && d.to) did = G.connect(s.node, s.port, d.to.node, d.to.port);
     markPorts(); drawLinks(); if (did || d.from) changed();
+  }
+  // shaking a node quickly from side to side pulls it out of its links (the neighbours join up), like Houdini
+  function wiggle(e) {
+    const w = nodeDrag.wig, dx = e.clientX - w.lx; if (Math.abs(dx) < 2) return;
+    const dir = Math.sign(dx), now = performance.now();
+    if (w.dir && dir !== w.dir) { if (Math.abs(w.lx - w.sx) >= 16) w.rev.push(now); w.sx = w.lx; }
+    w.dir = dir; w.lx = e.clientX; w.rev = w.rev.filter((t) => now - t < 900);
+    const id = nodeDrag.n.id;
+    if (w.rev.length >= 4 && G.links.some((l) => l.from === id || l.to === id)) { w.rev = []; G.detachNode(id); render(); changed(); }
+  }
+  // the link a dragged, unconnected node is close to (it would be inserted into the middle of it)
+  function linkNear(n) {
+    if (G.links.some((l) => l.from === n.id || l.to === n.id)) return null;
+    const cx = n.x + NW / 2, cy = n.y + nodeH(n) / 2; let best = null, bd = 46 / view.s;
+    for (const l of G.links) {
+      const A = G.node(l.from), B = G.node(l.to); if (!A || !B) continue;
+      const a = portXY(A, 'out', NODES[A.type].outputs.findIndex((p) => p.id === l.fromPort)), b = portXY(B, 'in', NODES[B.type].inputs.findIndex((p) => p.id === l.toPort)), dx = Math.max(40, Math.abs(b.x - a.x) * 0.5);
+      for (let k = 0; k <= 24; k++) {
+        const t = k / 24, u = 1 - t, x = u * u * u * a.x + 3 * u * u * t * (a.x + dx) + 3 * u * t * t * (b.x - dx) + t * t * t * b.x, y = u * u * u * a.y + 3 * u * u * t * a.y + 3 * u * t * t * b.y + t * t * t * b.y, d = Math.hypot(x - cx, y - cy);
+        if (d < bd && G.insertPorts(n.id, l.id)) { bd = d; best = l.id; }
+      }
+    }
+    return best;
   }
 
   // ---------------------------------------------------------------- toolbar
