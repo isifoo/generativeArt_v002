@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Line_v03 lab</title>
+<meta name="build" content="20261109111552">
+<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109111552","../colorwheel.js":"../colorwheel.js?b=20261109111552","./shared.js":"./shared.js?b=20261109111552","./candidates.js":"./candidates.js?b=20261109111552"}}</script>
+<link rel="stylesheet" href="../css/main.css?b=20261109111552">
+<link rel="stylesheet" href="lab.css?b=20261109111552">
+</head>
+<body class="lab">
+<video id="vid" muted loop playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+<div id="newver" hidden>New version available. Click to reload.</div>
+<header id="top">
+  <h1>Line_v03 lab</h1>
+  <span class="note" id="ver">...</span>
+  <div class="row">
+    <button id="cam" type="button">Camera</button>
+    <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
+    <button id="test" type="button" class="on">Test picture</button>
+    <button id="setbtn" type="button">Edit</button>
+    <canvas id="thumb" width="54" height="96" title="What the generators see (tone)"></canvas>
+    <span class="note" id="srcname"></span>
+  </div>
+</header>
+<div id="msg"></div>
+<p class="note lead">Each card is a different way to make ONE long line from the picture. Density of the line = contrast. Watch the motion: the line must slide and grow, never pop or flicker. Give a card the x if it is not the way, write why in its note: it goes to the Dropped list and a replacement is made.</p>
+<main id="grid"></main>
+<section id="dropped">
+  <h2>Dropped</h2>
+  <div id="droplist" class="note">Nothing dropped yet.</div>
+  <div class="row"><button id="copydrop" type="button">Copy dropped list</button><span class="note">Paste the copied text to Claude: it makes replacements with a different principle.</span></div>
+  <details><summary class="note">Show the text</summary><textarea id="droptext" readonly rows="8"></textarea></details>
+</section>
+
+<div id="settings">
+  <div class="head"><h2 style="margin:0">Edit: lab</h2><button id="setclose" type="button" title="Close">x</button></div>
+  <h2 class="grp" style="margin:6px 0">Input (every card)</h2>
+  <div class="ctl"><span>Camera</span><label class="note"><input type="checkbox" id="mirror" checked> mirror camera</label></div>
+  <div id="gsl"></div>
+  <h2 class="grp keep" style="margin:12px 0 6px">Colours (every style, same as the main app)</h2>
+  <div id="palette"></div>
+  <p class="note">The palette is the main app's palette system: the colour that contrasts most with the paper is the ink.</p>
+  <h2 style="margin-top:14px">Motion check (per card)</h2>
+  <p class="note">Each card shows the change between two frames: typical (median) and the biggest in the last seconds. A ratio far above 3 means a jump or a flicker.</p>
+</div>
+<script type="module">
+  const b = document.querySelector('meta[name=build]').content;
+  import('./lab.js?b=' + b);
+</script>
+</body>
+</html>
