@@ -5,6 +5,7 @@ import { $, VIEW, msg, vid, cam, buildSliders, initDefaults, versionCheck, start
 import { loadPreset } from './palette.js';
 import { createDepthModel } from './depthmodel.js';
 
+const LV2 = VIEW === 'lettersv02';     // Letters_v02 = this same engine plus HARD EDGES: where the picture changes contrast a line glyph (- | / \) is drawn along the edge
 const EB = VIEW === 'eightbit';          // 8bit = this same engine with chunky pixel letters, hard colour steps and fewer, bigger characters
 const RAMPS = {
   eight: { label: '8-bit letters', chars: ' ioHXM' },
@@ -35,6 +36,12 @@ const SLIDERS = [
   { id: 'lbg', label: 'Faint symbols in the empty ground', min: 0, max: 1, step: 0.01, val: 0.12, off: 'none' },
   { id: 'lwt', label: 'Symbol weight', min: 0, max: 1, step: 0.01, val: 0.6, off: 'light' },
 ];
+if (LV2) SLIDERS.push(
+  { head: 'Edge lines (v02)' },
+  { id: 'ledge', label: 'Edge threshold (lower = more lines)', min: 0.02, max: 0.6, step: 0.005, val: 0.16, off: '0.16' },
+  { id: 'ledgew', label: 'Edge thickness (0 = one thin line)', min: 0, max: 1, step: 0.01, val: 0.15, off: 'thin' },
+  { id: 'ledgs', label: 'Edge softness (fade in and out)', min: 0.02, max: 0.5, step: 0.01, val: 0.12, off: '0.12' },
+  { id: 'lfill', label: 'Fill symbols (0 = only the edge lines)', min: 0, max: 1, step: 0.01, val: 0.55, off: 'only lines' });
 if (EB) { const EBV = { lcol: 64, lasp: 1.5, lsz: 1, lgam: 1, lsm: 0.4, lshim: 0, lbg: 0, lwt: 1 }; for (const s of SLIDERS) if (s.id in EBV) { s.val = EBV[s.id]; s.off = String(EBV[s.id]); } }
 const P = {};
 const val = buildSliders(SLIDERS, P);
@@ -54,24 +61,34 @@ in vec2 p; out vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5
 const FS = `#version 300 es
 precision highp float;
 in vec2 uv; out vec4 o;
-uniform sampler2D lvlT, atlasT;                           // brightness per character cell, the glyph atlas (white on black, one glyph per column)
-uniform vec2 res, cell; uniform float nG, shim, time, size, bgd, wt, pixmode;
-uniform vec3 bgC, lowC, highC;
+uniform sampler2D lvlT, atlasT, edgeT;                           // brightness per character cell, the glyph atlas (white on black, one glyph per column)
+uniform vec2 res, cell; uniform float nG, nR, lv2, fill, shim, time, size, bgd, wt, pixmode;
+uniform vec3 bgC, lowC, highC, eInk;
 float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
   vec2 px = uv * res, cid = floor(px / cell), loc = fract(px / cell);
   float lv = texelFetch(lvlT, ivec2(cid), 0).r;
   float r = h21(cid + 3.3);
   if (r < bgd * 0.5) lv = max(lv, 0.10 + 0.22 * h21(cid + 9.1));                       // faint symbols in the empty ground
-  float g = floor(lv * (nG - 0.001));
+  float g = floor(lv * (nR - 0.001));
   float sh = (h21(cid + floor(time) * 1.7) - 0.5) * 2.0 * shim * 2.0;                  // the symbol hops to a neighbour of the ramp
-  g = clamp(g + (g > 0.5 ? floor(sh + 0.5) : 0.0), 0.0, nG - 1.0);
+  g = clamp(g + (g > 0.5 ? floor(sh + 0.5) : 0.0), 0.0, nR - 1.0);
   vec2 q = (loc - 0.5) / size + 0.5;
   float cov = 0.0;
   if (g > 0.5 && q.x > 0.0 && q.x < 1.0 && q.y > 0.0 && q.y < 1.0) cov = texture(atlasT, vec2((g + q.x) / nG, q.y)).r;
   cov = pixmode > 0.5 ? step(0.5, cov) : smoothstep(0.5 - 0.45 * (1.0 - wt) - 0.2, 0.55 + 0.4 * wt, cov * (0.8 + 0.5 * wt));       // 8bit: hard pixels
-  vec3 ink = pixmode > 0.5 ? mix(lowC, highC, (g - 1.0) / max(1.0, nG - 2.0)) : mix(lowC, highC, smoothstep(0.2, 0.9, lv));   // 8bit: one flat colour per symbol
-  o = vec4(mix(bgC, ink, clamp(cov, 0.0, 1.0)), 1.0);
+  vec3 ink = pixmode > 0.5 ? mix(lowC, highC, (g - 1.0) / max(1.0, nR - 2.0)) : mix(lowC, highC, smoothstep(0.2, 0.9, lv));   // 8bit: one flat colour per symbol
+  cov *= lv2 > 0.5 ? fill : 1.0;
+  vec3 col = mix(bgC, ink, clamp(cov, 0.0, 1.0));
+  if (lv2 > 0.5) {                                                                       // the edge line: - | / \ along the edge, drawn over the fill
+    vec2 e = texelFetch(edgeT, ivec2(cid), 0).rg; int ec = int(floor(e.r * 255.0 / 40.0 + 0.5));
+    if (ec > 0 && q.x > 0.0 && q.x < 1.0 && q.y > 0.0 && q.y < 1.0) {
+      float c2 = texture(atlasT, vec2((nR + float(ec - 1) + q.x) / nG, q.y)).r;
+      c2 = smoothstep(0.25, 0.6, c2 * (0.9 + 0.6 * wt)) * e.g;
+      col = mix(col, eInk, clamp(c2, 0.0, 1.0));
+    }
+  }
+  o = vec4(col, 1.0);
 }`;
 function prog(vs, fs) {
   const pg = gl.createProgram();
@@ -88,25 +105,26 @@ const pr = prog(VS, FS); gl.useProgram(pr);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
 }
-const U = {}; for (const n of ['lvlT', 'atlasT', 'res', 'cell', 'nG', 'shim', 'time', 'size', 'bgd', 'wt', 'pixmode', 'bgC', 'lowC', 'highC']) U[n] = gl.getUniformLocation(pr, n);
+const U = {}; for (const n of ['lvlT', 'atlasT', 'res', 'cell', 'nG', 'shim', 'time', 'size', 'bgd', 'wt', 'pixmode', 'bgC', 'lowC', 'highC', 'edgeT', 'nR', 'lv2', 'fill', 'eInk']) U[n] = gl.getUniformLocation(pr, n);
 const mkTex = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-const tLvl = mkTex(0), tAtlas = mkTex(1);
-gl.uniform1i(U.lvlT, 0); gl.uniform1i(U.atlasT, 1); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+const tLvl = mkTex(0), tAtlas = mkTex(1), tEdge = mkTex(2);
+gl.uniform1i(U.lvlT, 0); gl.uniform1i(U.atlasT, 1); gl.uniform1i(U.edgeT, 2); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tLvl); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tEdge); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
 // ---------------------------------------------------------------- the glyph atlas: one 64 x 96 tile per symbol of the ramp, drawn with the browser's monospace font
-let nG = 1;
+let nG = 1, nR = 1;
 function buildAtlas() {
-  const chars = [...RAMPS[ramp].chars], T = EB ? 8 : 64, TH = EB ? 12 : 96, c = document.createElement('canvas'); c.width = T * chars.length; c.height = TH;
+  const rampChars = [...RAMPS[ramp].chars], chars = LV2 ? [...rampChars, '-', '|', '/', '\\'] : rampChars, T = EB ? 8 : 64, TH = EB ? 12 : 96, c = document.createElement('canvas'); c.width = T * chars.length; c.height = TH;
   const x = c.getContext('2d', { willReadFrequently: true }); x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height);
   x.fillStyle = '#fff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.font = `bold ${EB ? 11 : 78}px ui-monospace, "Cascadia Mono", Consolas, Menlo, "Courier New", monospace`;
   chars.forEach((ch, i) => { if (ch !== ' ') x.fillText(ch, i * T + T / 2, TH / 2 + (EB ? 1 : 4)); });
   if (EB) { const im = x.getImageData(0, 0, c.width, c.height), d = im.data; for (let i = 0; i < d.length; i += 4) { const v = d[i] > 110 ? 255 : 0; d[i] = d[i + 1] = d[i + 2] = v; } x.putImageData(im, 0, 0); }   // 8 x 12 pixel tiles, hard edged
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, tAtlas);
   const flt = EB ? gl.NEAREST : gl.LINEAR; gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, flt); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, flt);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); nG = chars.length;
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c); nG = chars.length; nR = rampChars.length;
 }
 buildAtlas();
 
@@ -132,14 +150,36 @@ function updateTone() {
 }
 function uploadLevels() {
   const auto = num('lauto', 1), blk = auto * lo + (1 - auto) * num('lblk', 0.05), wht = auto * hi + (1 - auto) * num('lwht', 0.85), gam = num('lgam', 1.2), inv = num('linv', 0) >= 0.5;
-  const bgf = depthOn ? num('lbgf', 0) : 0, u8 = new Uint8Array(cols * rows); nLit = 0;
+  const bgf = depthOn ? num('lbgf', 0) : 0, u8 = new Uint8Array(cols * rows), Ia = LV2 ? new Float32Array(cols * rows) : null; nLit = 0;
   for (let i = 0; i < u8.length; i++) {
     let v = tone[i]; if (inv) v = 1 - v;
     let I = Math.pow(Math.min(1, Math.max(0, (v - blk) / Math.max(0.05, wht - blk))), gam) * (1 - bgf * (1 - fgv[i]));
-    if (I > 0.3) nLit++; u8[i] = Math.round(Math.min(1, I) * 255);
+    if (I > 0.3) nLit++; u8[i] = Math.round(Math.min(1, I) * 255); if (Ia) Ia[i] = Math.min(1, I);
   }
+  if (LV2) uploadEdges(Ia);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tLvl);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, u8); lvlUp = false;
+}
+// EDGES (v02): Sobel on the levelled brightness of the character grid. Where it changes, a line glyph goes along the edge (across the change): - | / \ by the angle.
+// Thin lines: only the cell with the strongest change across the edge is kept. Strength fades smoothly (the tone is already eased in time), so lines never pop.
+function uploadEdges(I) {
+  const n = cols * rows, asp = num('lasp', 1.75), thr = num('ledge', 0.16), thick = num('ledgew', 0.15), soft = num('ledgs', 0.12);
+  const gx = new Float32Array(n), gy = new Float32Array(n), m = new Float32Array(n), at = (x, y) => I[Math.min(rows - 1, Math.max(0, y)) * cols + Math.min(cols - 1, Math.max(0, x))];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const a = at(x - 1, y - 1), b = at(x, y - 1), c = at(x + 1, y - 1), d = at(x - 1, y), f = at(x + 1, y), g = at(x - 1, y + 1), h = at(x, y + 1), k = at(x + 1, y + 1), i = y * cols + x;
+    gx[i] = (c + 2 * f + k - a - 2 * d - g) / 4; gy[i] = (g + 2 * h + k - a - 2 * b - c) / 4; m[i] = Math.hypot(gx[i], gy[i] / asp);
+  }
+  const e = new Uint8Array(n * 2);
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const i = y * cols + x, mm = m[i]; if (mm < thr) continue;
+    const gl2 = Math.hypot(gx[i], gy[i]) || 1, sx2 = Math.abs(gx[i]) > 0.38 * gl2 ? Math.sign(gx[i]) : 0, sy2 = Math.abs(gy[i]) > 0.38 * gl2 ? Math.sign(gy[i]) : 0;
+    const n1 = m[Math.min(rows - 1, Math.max(0, y + sy2)) * cols + Math.min(cols - 1, Math.max(0, x + sx2))], n2 = m[Math.min(rows - 1, Math.max(0, y - sy2)) * cols + Math.min(cols - 1, Math.max(0, x - sx2))];
+    if (mm < Math.max(n1, n2) * (1 - thick) - 1e-6) continue;
+    let a = Math.atan2(gx[i], -gy[i] / asp); if (a < 0) a += Math.PI; if (a >= Math.PI) a -= Math.PI;       // the edge runs across the gradient
+    const cls = a < Math.PI / 8 || a >= 7 * Math.PI / 8 ? 0 : a < 3 * Math.PI / 8 ? 3 : a < 5 * Math.PI / 8 ? 1 : 2;   // 0 '-'  1 '|'  2 '/'  3 ''
+    const t = Math.min(1, (mm - thr) / Math.max(0.01, soft)); e[i * 2] = (cls + 1) * 40; e[i * 2 + 1] = Math.round(t * t * (3 - 2 * t) * 255);
+  }
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, tEdge); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, cols, rows, 0, gl.RG, gl.UNSIGNED_BYTE, e);
 }
 let pal = getPalette(); onPalette((p) => { pal = p; });
 const rgb = (a) => a.map((x) => x / 255);
@@ -148,7 +188,7 @@ function render() {
   if (lvlUp) uploadLevels();
   const g = grid(), light = pal.cols[pal.cols.length - 1], mid = pal.n === 3 ? pal.cols[1] : light.map((x, i) => x * 0.8 + pal.cols[0][i] * 0.2);
   gl.useProgram(pr); gl.viewport(0, 0, OW, OH);
-  gl.uniform2f(U.res, OW, OH); gl.uniform2f(U.cell, g.cw, g.ch); gl.uniform1f(U.nG, nG); gl.uniform1f(U.shim, num('lshim', 0.2)); gl.uniform1f(U.time, performance.now() / 1000 * num('lrate', 6));
+  gl.uniform2f(U.res, OW, OH); gl.uniform2f(U.cell, g.cw, g.ch); gl.uniform1f(U.nG, nG); gl.uniform1f(U.nR, nR); gl.uniform1f(U.lv2, LV2 ? 1 : 0); gl.uniform1f(U.fill, num('lfill', 0.55)); gl.uniform3fv(U.eInk, rgb(pal.paper)); gl.uniform1f(U.shim, num('lshim', 0.2)); gl.uniform1f(U.time, performance.now() / 1000 * num('lrate', 6));
   gl.uniform1f(U.size, num('lsz', 0.92)); gl.uniform1f(U.bgd, num('lbg', 0.12)); gl.uniform1f(U.wt, num('lwt', 0.6)); gl.uniform1f(U.pixmode, EB ? 1 : 0);
   gl.uniform3fv(U.bgC, rgb(pal.cols[0])); gl.uniform3fv(U.lowC, rgb(mid)); gl.uniform3fv(U.highC, rgb(pal.paper));
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

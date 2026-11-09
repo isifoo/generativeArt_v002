@@ -23,6 +23,7 @@ export const VERSIONS = [
   { id: 'linesv2', label: 'Lines V2' },
   { id: 'windows', label: 'Windows' },
   { id: 'letters', label: 'Letters' },
+  { id: 'lettersv02', label: 'Letters_v02' },                  // Letters plus hard edge lines - | / \ (letters.js)
   { id: 'eightbit', label: '8bit' },                                // Letters engine with chunky pixel letters and flat colour steps (letters.js)                           // the camera as type on a grid, like the Coinbase / Buck piece (letters.js)                           // a night apartment block: the person is the lit windows (windows.js)                         // horizontal sine lines (Frequency, Amplitude) on the Dollar 5 nodes (lines.js)
 ];
 const qv = new URLSearchParams(location.search).get('view');

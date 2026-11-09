@@ -268,3 +268,8 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 - How: a phase field phi(u, v) is rebuilt every frame from the eased video tone; the line is where phi is a whole number plus a half. The tone sets the gap between runs (the contrast). The picture is cut into pieces `Run length px` long; inside a piece every run is dead straight, between pieces it jogs sideways, `Turn softness` 0 = sharp 90 degree jog, 1 = long S curve. Run length = full height gives perfectly straight lines. `Wave` adds a sine. Every piece ends with the same total phase, so a dense place only moves its neighbours locally.
 - Motion: the tone is eased (`Ease s`), phi changes continuously, so lines slide and nothing pops in the middle of the picture.
 - Not yet: subject-only mask, spline editor for the turn shape, free angle, run length variation. Tested on one clip only, not on camera or iPad.
+
+## Letters_v02 (v2.76)
+- New view `?view=lettersv02` (menu: Letters_v02): the Letters engine in `letters.js` (flag `LV2`, no copy) plus hard edge lines. Where the levelled picture changes contrast (Sobel on the character grid) a line glyph `- | / \` is drawn along the edge, in the paper colour over the fill symbols, chosen by the edge angle.
+- Sliders (group Edge lines): `Edge threshold` (lower = more lines), `Edge thickness` (0 = one thin line, the strongest cell across the edge only), `Edge softness` (line strength fades in and out, so lines do not pop), `Fill symbols` (0 = only the edge lines).
+- Tested on one clip in the browser pane only; not on camera or iPad.
