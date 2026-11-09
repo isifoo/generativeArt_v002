@@ -253,3 +253,8 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 ## Ishihara_v02 fixed (v2.72)
 - Size now runs the other way: dark = small circles, bright = big circles. `Contrast (size: dark small, bright big)` (the old Size contrast slider, `ihsc`) controls how strongly the tone changes the size.
 - No spread: the Gap by darkness slider is removed from this view and forced to 0; Gap is the same small value everywhere (0.3 px) and Fill holes is 1, so the paper is packed at full density.
+
+## LineSquare_v01 (v2.73)
+- New view `?view=linesquare` (menu: LineSquare_v01): Line_v01's engine in `line.js` (flag `LSQ`, no copy), but every run is a straight horizontal or vertical line and every turn is a sharp 90 degree corner. One continuous line (or a few), spacing from the video tone as in Line_v01.
+- How: in the forces pass a point where the line turns from a horizontal to a vertical run is pulled onto the exact corner (the other point of the two neighbours' axes); elsewhere the normal pull to the middle of the neighbours keeps the run straight. The display smoothing is skipped (it would round the corners). Slider `Square strength` (`sqr`, uniform p4): 0 = plain V1 line. `s3` buffer got COPY_DST for the unsmoothed copy.
+- Tried first and dropped: forcing sharp corners through the Line_v02 pattern spline (too much bend made the line loop and collapse).

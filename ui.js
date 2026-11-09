@@ -11,6 +11,7 @@ export const VERSIONS = [
   { id: 'camera', label: 'Camera' },                              // just the camera in real time, with a light grade (camera.js)
   { id: 'line', label: 'Line_v01' },
   { id: 'linev02', label: 'Line_v02' },                            // Line_v01's engine plus the curve editor (line.js, curveedit.js)
+  { id: 'linesquare', label: 'LineSquare_v01' },                   // Line_v01's engine with straight runs and sharp 90 degree corners (line.js)
   { id: 'ishihara', label: 'Ishihara_v01' },
   { id: 'ishiharav02', label: 'Ishihara_v02' },                      // one colour, size = contrast: dark small, bright big, full density (ishihara.js)
   { id: 'depth', label: 'Depth' },

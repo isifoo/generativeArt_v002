@@ -257,6 +257,11 @@ fn main(@builtin(global_invocation_id) g:vec3u) {
       let t = pos[inx] - pos[ip]; let tl = length(t) + 1e-6; let nl = vec2f(-t.y, t.x)/tl; let h = tl*0.5;   // a point on a curve sits a little off the middle of its neighbours (kappa h^2 / 2)
       tgt = tgt - nl*(clamp(kap[i], -2.5, 2.5)*h*h*0.5/Rn*u.p3);
     }
+    if (u.p4 > 0.0) {                                       // LineSquare: a point where the line turns from a horizontal to a vertical run (or back) sits exactly on the corner;
+      let a = p - pos[ip]; let b = pos[inx] - p;            // everywhere else the plain pull to the middle of the neighbours keeps the run straight
+      let ah = abs(a.x) >= abs(a.y); let bh = abs(b.x) >= abs(b.y);
+      if (ah != bh) { tgt = mix(tgt, select(vec2f(pos[ip].x, pos[inx].y), vec2f(pos[inx].x, pos[ip].y), ah), min(1.0, u.p4)); }
+    }
     F = (tgt - p)*u.tension;
     let si = 1.3*Rn; let rc = i32(si/CS) + 1;
     let cx = clamp(i32(p.x/CS), 0, GW-1); let cy = clamp(i32(p.y/CS), 0, GH-1);
@@ -531,7 +536,7 @@ const B = {
   meta: mk(16, S | CD | CSRC), args: mk(48, S | GPUBufferUsage.INDIRECT | CD),
   pos: mk(MAXN * 8, S | CD), mv: mk(MAXN * 16, S), head: mk(GW * GH * 4, S), nxt: mk(MAXN * 4, S),
   cnt: mk(MAXN * 4, S), scanOut: mk(MAXN * 4, S), blockOff: mk(2048, S),
-  s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S),
+  s1: mk(MAXN * 8, S), s2: mk(MAXN * 8, S), s3: mk(MAXN * 8, S | CD),
   du: mk(96, GPUBufferUsage.UNIFORM | CD),
   curve: mk(257 * 4, S | CD), ph: mk(MAXN * 4, S | CD), phN: mk(MAXN * 4, S | CD), kap: mk(MAXN * 4, S),
 };
@@ -602,6 +607,7 @@ const IND_PTS = 0, IND_SCAN = 16;
 const D3 = VIEW === 'dollar3';                             // Dollar 3: V1's mechanism, thinner and calmer, with dash levels
 const FL = VIEW === 'flines';                              // Fractal Lines: V1's line with one uniform spacing; width carries the tone
 const LV2 = VIEW === 'linev02';                            // Line_v02: Line_v01's engine plus a curve editor that decides how straight the line is, point by point
+const LSQ = VIEW === 'linesquare';                          // LineSquare_v01: Line_v01's engine, but every run is straight and every turn is a sharp 90 degree corner
 const CALM = D3 || FL;                                     // both have their own curve sliders
 const SLIDERS_V1 = [
   { id: 'stroke', label: 'Stroke px', min: 1, max: 6, step: 0.25, val: 4.75, off: 'no line drawn' },
@@ -650,7 +656,9 @@ const SLIDERS_FL = [
 ];
 const SLIDERS_V2 = [...SLIDERS_V1, { head: 'Pattern spline (the editor above)' },
   { id: 'cvamt', label: 'Pattern strength', min: 0, max: 1.5, step: 0.01, val: 1, off: 'pattern ignored: plain V1 line' }];
-const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : LV2 ? SLIDERS_V2 : SLIDERS_V1;
+const SLIDERS_SQ = [...SLIDERS_V1, { head: 'Square corners' },
+  { id: 'sqr', label: 'Square strength', min: 0, max: 1, step: 0.01, val: 1, off: 'plain V1 line (round)' }];
+const SLIDERS = D3 ? SLIDERS_D3 : FL ? SLIDERS_FL : LV2 ? SLIDERS_V2 : LSQ ? SLIDERS_SQ : SLIDERS_V1;
 const val = buildSliders(SLIDERS, P);                    // the value, or -1 when off
 
 
@@ -675,7 +683,7 @@ const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
   const tension = CALM && P.on.tens ? P.tens : 0.30, jit = CALM && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
-  const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = 0;
+  const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = LSQ ? Math.max(0, val('sqr')) : 0;
   U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit, cvA, cvM]);
   device.queue.writeBuffer(B.u, 0, U);
 }
@@ -844,7 +852,8 @@ function encodeStep(enc) {
   run(enc, 'finalize', G.finalize, [1], 'sim: compact + insert');
 }
 function encodeDraw(enc) {
-  run(enc, 'smooth', G.sm1, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm2, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth');
+  if (LSQ && val('sqr') > 0) enc.copyBufferToBuffer(B.pos, 0, B.s3, 0, MAXN * 8);       // LineSquare: no display smoothing, it would round the corners
+  else { run(enc, 'smooth', G.sm1, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm2, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth'); }
   const extra = CALM && P.on.smth ? Math.max(0, Math.round((P.smth - 3) / 2)) : 0;     // Dollar 3: more smoothing passes = calmer curves
   for (let k = 0; k < extra; k++) { run(enc, 'smooth', G.sm4, IND_PTS, 'draw: smooth'); run(enc, 'smooth', G.sm3, IND_PTS, 'draw: smooth'); }
   const bw = CALM && !$('#e2pal').checked, fg = bw ? [18, 18, 18] : P.fg;              // Dollar 3: black ink unless the palette is asked for
