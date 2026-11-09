@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GenerativeArt v003</title>
+<meta name="build" content="20261109204500">
+<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109204500","../colorwheel.js":"../colorwheel.js?b=20261109204500","./slider.js":"./slider.js?b=20261109204500","./gl.js":"./gl.js?b=20261109204500","./nodes.js":"./nodes.js?b=20261109204500","./graph.js":"./graph.js?b=20261109204500","./editor.js":"./editor.js?b=20261109204500"}}</script>
+<link rel="stylesheet" href="../css/main.css?b=20261109204500">
+<link rel="stylesheet" href="v3.css?b=20261109204500">
+</head>
+<body class="v3">
+<video id="vid" muted loop playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+<div id="newver" hidden>New version available. Click to reload.</div>
+<header id="top">
+  <h1>GenerativeArt_v003</h1><span class="note" id="ver">...</span>
+  <div class="row">
+    <button id="cam" type="button">Camera</button>
+    <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
+    <button id="test" type="button" class="on">Test picture</button>
+    <span class="sep"></span>
+    <button id="savep" type="button" title="Download this node graph as a file">Save patch</button>
+    <button id="loadp" type="button" title="Load a patch file">Load patch</button><input id="pfile" type="file" accept=".json,application/json" hidden>
+    <button id="reset" type="button" title="Back to the starting graph">Reset graph</button>
+  </div>
+</header>
+<div id="msg"></div>
+<main id="v3">
+  <section id="pv"><div class="cvwrap"><canvas id="cv" width="540" height="960"></canvas></div><div class="meter" id="meter"></div></section>
+  <section id="gr"></section>
+  <aside id="pn"><div id="params"></div><div id="colours"></div></aside>
+</main>
+<script type="module">
+  const b = document.querySelector('meta[name=build]').content;
+  import('./app.js?b=' + b);
+</script>
+</body>
+</html>
