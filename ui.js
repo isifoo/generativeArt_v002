@@ -12,7 +12,7 @@ export const VERSIONS = [
   { id: 'line', label: 'Line_v01' },
   { id: 'linev02', label: 'Line_v02' },                            // Line_v01's engine plus the curve editor (line.js, curveedit.js)
   { id: 'ishihara', label: 'Ishihara_v01' },
-  { id: 'ishiharav02', label: 'Ishihara_v02' },                      // one colour, size = contrast: bright small and spread, dark big and tight (ishihara.js)
+  { id: 'ishiharav02', label: 'Ishihara_v02' },                      // one colour, size = contrast: dark small, bright big, full density (ishihara.js)
   { id: 'depth', label: 'Depth' },
   { id: 'depthdots', label: 'DepthDotsv01' },
   { id: 'depthdotsv02', label: 'DepthDotsv02' },                  // v01 plus 4 contrast hot spots with extra off-grid dots (dotsv02.js)

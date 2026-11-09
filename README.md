@@ -249,3 +249,7 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 ## Ishihara_v01 and Ishihara_v02 (v2.71)
 - `Ishihara` is now `Ishihara_v01` (unchanged). New `Ishihara_v02` (`?view=ishiharav02`) is the same engine in `ishihara.js` (flag `IS2`, no copy) from the video: one colour (the palette's dark colour, value and hue drivers fixed), and size is the only carrier of contrast: bright = small circles with more room between them (Gap 2 px, Gap by darkness 0.8), dark = big circles packed close. Size follows the tone smoothly: a softer tone field (extra 5 cell blur), a gentle size curve (Size contrast 2.2) and tone smoothing 0.45; no edge-detail sizing, size randomness 0.08. Every Ishihara slider still works; `invert` flips bright and dark.
 - It needs about 20 to 30 seconds to fill on a slow browser tab (circles grow in from zero). Tested on one recorded clip, not on the live camera or iPad.
+
+## Ishihara_v02 fixed (v2.72)
+- Size now runs the other way: dark = small circles, bright = big circles. `Contrast (size: dark small, bright big)` (the old Size contrast slider, `ihsc`) controls how strongly the tone changes the size.
+- No spread: the Gap by darkness slider is removed from this view and forced to 0; Gap is the same small value everywhere (0.3 px) and Fill holes is 1, so the paper is packed at full density.
