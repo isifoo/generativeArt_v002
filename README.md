@@ -273,3 +273,6 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 - New view `?view=lettersv02` (menu: Letters_v02): the Letters engine in `letters.js` (flag `LV2`, no copy) plus hard edge lines. Where the levelled picture changes contrast (Sobel on the character grid) a line glyph `- | / \` is drawn along the edge, in the paper colour over the fill symbols, chosen by the edge angle.
 - Sliders (group Edge lines): `Edge threshold` (lower = more lines), `Edge thickness` (0 = one thin line, the strongest cell across the edge only), `Edge softness` (line strength fades in and out, so lines do not pop), `Fill symbols` (0 = only the edge lines).
 - Tested on one clip in the browser pane only; not on camera or iPad.
+
+## Letters_v02 no overlap (v2.77)
+- A cell that holds an edge line glyph holds only that glyph: the fill symbol (and the faint ground symbol) is removed from the spot, so no two characters share a cell. Edge strength below 0.12 counts as no edge; above it the glyph fades in smoothly.

@@ -82,10 +82,13 @@ void main() {
   vec3 col = mix(bgC, ink, clamp(cov, 0.0, 1.0));
   if (lv2 > 0.5) {                                                                       // the edge line: - | / \ along the edge, drawn over the fill
     vec2 e = texelFetch(edgeT, ivec2(cid), 0).rg; int ec = int(floor(e.r * 255.0 / 40.0 + 0.5));
-    if (ec > 0 && q.x > 0.0 && q.x < 1.0 && q.y > 0.0 && q.y < 1.0) {
-      float c2 = texture(atlasT, vec2((nR + float(ec - 1) + q.x) / nG, q.y)).r;
-      c2 = smoothstep(0.25, 0.6, c2 * (0.9 + 0.6 * wt)) * e.g;
-      col = mix(col, eInk, clamp(c2, 0.0, 1.0));
+    if (ec > 0 && e.g > 0.12) {                                                           // an edge cell holds the line glyph ONLY: no fill symbol is left in this spot
+      col = bgC;
+      if (q.x > 0.0 && q.x < 1.0 && q.y > 0.0 && q.y < 1.0) {
+        float c2 = texture(atlasT, vec2((nR + float(ec - 1) + q.x) / nG, q.y)).r;
+        c2 = smoothstep(0.25, 0.6, c2 * (0.9 + 0.6 * wt)) * smoothstep(0.12, 0.5, e.g);
+        col = mix(bgC, eInk, clamp(c2, 0.0, 1.0));
+      }
     }
   }
   o = vec4(col, 1.0);
