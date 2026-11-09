@@ -1,6 +1,6 @@
 // LINE_v03 LAB: the page. Builds one card per candidate module, runs them all on the same eased tone field, and handles the delete / replace loop.
 import * as S from './shared.js';
-import { CANDIDATES } from './candidates.js';
+import { CANDIDATES, DROPPED } from './candidates.js';
 const { $, lsGet, lsSet, msg } = S;
 const W = 540, H = 960, BUILD = document.querySelector('meta[name=build]').content;
 const DROPKEY = 'line3lab.dropped';
@@ -51,7 +51,11 @@ addEventListener('drop', async (e) => { e.preventDefault(); const f = e.dataTran
 
 // ---------------------------------------------------------------- the cards
 const cards = [], grid = $('#grid');
-const dropped = () => lsGet(DROPKEY, []) || [];
+const dropped = () => {                              // the list kept in this browser, plus the ones dropped earlier (candidates.js), unless restored
+  const l = lsGet(DROPKEY, []) || [], rest = lsGet('line3lab.restored', []) || [];
+  for (const d of DROPPED) if (!l.some((e) => e.id === d.id) && !rest.includes(d.id)) l.push(d);
+  return l;
+};
 const paramsText = (c) => { const o = {}; for (const d of c.mod.sliders) o[d.id] = +(+c.P[d.id]).toFixed(3); for (const k of Object.keys(c.curves)) o[k + '_curve'] = c.curves[k].pts().map((p) => [+p[0].toFixed(2), +p[1].toFixed(2)]); return JSON.stringify(o); };
 
 function makeCard(mod) {
@@ -83,12 +87,13 @@ function slotEl(entry) {
   return s;
 }
 function dropCard(c) {
+  lsSet('line3lab.restored', (lsGet('line3lab.restored', []) || []).filter((x) => x !== c.mod.id));
   const list = dropped().filter((d) => d.id !== c.mod.id);
   list.push({ id: c.mod.id, name: c.mod.name, principle: c.mod.principle, control: c.mod.control, note: $('textarea', c.el).value.trim(), params: paramsText(c), at: new Date().toISOString().slice(0, 16).replace('T', ' ') });
   lsSet(DROPKEY, list);
   c.el.replaceWith(slotEl(list[list.length - 1])); cards.splice(cards.indexOf(c), 1); renderDropped();
 }
-function restore(id) { lsSet(DROPKEY, dropped().filter((d) => d.id !== id)); location.reload(); }
+function restore(id) { lsSet(DROPKEY, dropped().filter((d) => d.id !== id)); lsSet('line3lab.restored', [...(lsGet('line3lab.restored', []) || []), id]); location.reload(); }
 function dropText() {
   const d = dropped(), live = cards.filter((c) => $('textarea', c.el).value.trim());
   let t = `LINE_v03 LAB: dropped candidates (page build ${BUILD}, ${new Date().toISOString().slice(0, 16).replace('T', ' ')})\n`;
@@ -123,7 +128,7 @@ document.addEventListener('input', (e) => { if (e.target.matches('.card textarea
   for (const file of CANDIDATES) {
     try {
       const mod = (await import('./' + file + '?b=' + BUILD)).default;
-      if (gone.has(mod.id)) { grid.append(slotEl(dropped().find((d) => d.id === mod.id))); continue; }
+      if (gone.has(mod.id)) { const e = dropped().find((d) => d.id === mod.id); if (!e.replacedBy) grid.append(slotEl(e)); continue; }
       const c = makeCard(mod); cards.push(c); grid.append(c.el);
     } catch (e) { console.error(file, e); msg('Could not load ' + file + ': ' + e.message); }
   }
