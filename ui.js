@@ -12,6 +12,7 @@ export const VERSIONS = [
   { id: 'line', label: 'Line_v01' },
   { id: 'linev02', label: 'Line_v02' },                            // Line_v01's engine plus the curve editor (line.js, curveedit.js)
   { id: 'linesquare', label: 'LineSquare_v01' },                   // Line_v01's engine with straight runs and sharp 90 degree corners (line.js)
+  { id: 'linev03', label: 'Line_v03' },                            // a stripped down generator: a serpentine line whose runs, jogs and density are set directly (line3.js)
   { id: 'ishihara', label: 'Ishihara_v01' },
   { id: 'ishiharav02', label: 'Ishihara_v02' },                      // one colour, size = contrast: dark small, bright big, full density (ishihara.js)
   { id: 'depth', label: 'Depth' },

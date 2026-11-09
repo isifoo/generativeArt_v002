@@ -262,3 +262,9 @@ A shared group "Depth steadiness (all depth styles)" appears in every style that
 ## LineSquare_v01 perfectly straight (v2.74)
 - Drawing: LineSquare now uses the renderer's existing axis-aligned mode (`du.b.x`, every segment drawn as a horizontal leg then a vertical leg, elbow at (P1.x, P0.y)), so every drawn run is exactly horizontal or vertical whatever tiny drift the simulation still has. Corners stay sharp.
 - Simulation: the pull to the neighbours is stronger (tension 0.30 + 0.45 x Square strength) and the random push is cut to 10 %, so the points sit closer to the axes before drawing. Debug helper `window.__sqStats()` (share of segments within 1 degree of an axis in the raw points: about 10 %, which is why the drawing step does the exact alignment).
+
+## Line_v03 (v2.75, first prototype)
+- New view `?view=linev03` (menu: Line_v03), file `line3.js`: a small WebGL2 generator, no simulation and no copy of the Line_v01 engine. One serpentine line: runs up and down the picture, joined by U-turns alternately at the top and bottom.
+- How: a phase field phi(u, v) is rebuilt every frame from the eased video tone; the line is where phi is a whole number plus a half. The tone sets the gap between runs (the contrast). The picture is cut into pieces `Run length px` long; inside a piece every run is dead straight, between pieces it jogs sideways, `Turn softness` 0 = sharp 90 degree jog, 1 = long S curve. Run length = full height gives perfectly straight lines. `Wave` adds a sine. Every piece ends with the same total phase, so a dense place only moves its neighbours locally.
+- Motion: the tone is eased (`Ease s`), phi changes continuously, so lines slide and nothing pops in the middle of the picture.
+- Not yet: subject-only mask, spline editor for the turn shape, free angle, run length variation. Tested on one clip only, not on camera or iPad.
