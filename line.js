@@ -682,7 +682,7 @@ const sim = { frame: 0, time: 0, boost: 0, pending: 0, running: true, dropped: 0
 const U = new Float32Array(16);
 function writeU(fullWake, newW) {
   const e = eff();
-  const tension = CALM && P.on.tens ? P.tens : 0.30, jit = CALM && P.on.jit ? P.jit : 0.05, ijit = D3 && P.on.ijit ? P.ijit : 0.4;
+  const sq = LSQ ? Math.max(0, val('sqr')) : 0, tension = CALM && P.on.tens ? P.tens : 0.30 + 0.45 * Math.min(1, sq), jit = CALM && P.on.jit ? P.jit : 0.05 * (1 - 0.9 * Math.min(1, sq)), ijit = D3 && P.on.ijit ? P.ijit : 0.4;
   const cvA = LV2 ? Math.max(0, val('cvamt')) : 0, cvM = LSQ ? Math.max(0, val('sqr')) : 0;
   U.set([sim.time, e.rmin, e.rmax, e.gain, e.noise, fullWake ? 1 : 0, tension, 0.6, P.key ? 1 : 0, newW, 2.5, seg.ready ? P.subject : 0, jit, ijit, cvA, cvM]);
   device.queue.writeBuffer(B.u, 0, U);
@@ -860,7 +860,7 @@ function encodeDraw(enc) {
   const dash = D3 && P.on.dl ? [P.dl, P.on.dfull ? P.dfull : 99, P.on.dmin ? P.dmin : 0.25, 1] : [12, 1, 0.25, 0];
   const wv = FL && P.on.wh && P.wh > 0 ? [P.wh / SCALE, (P.on.wl ? P.wl : 300) / SCALE, (P.on.wa ? P.wa : 0) * Math.PI / 180, 1] : [0, 1, 0, 0];   // output px -> sim px
   const wt = FL ? [1, P.on.wmin ? P.wmin : 1, P.on.con ? P.con : 1, P.on.bri ? P.bri : 0] : [0, 1, 1, 0];
-  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, 0, 3, 0, 0, ...dash, ...wt, ...wv]));
+  device.queue.writeBuffer(B.du, 0, new Float32Array([SCALE, eff().stroke / 2, OW, OH, fg[0] / 255, fg[1] / 255, fg[2] / 255, 1, ...(LSQ && val('sqr') > 0 ? [1, 0.01, 0, 0] : [0, 3, 0, 0]), ...dash, ...wt, ...wv]));
   const d = {
     colorAttachments: [{ view: msaaView, resolveTarget: ctx.getCurrentTexture().createView(),
       clearValue: CALM && !$('#e2pal').checked ? { r: 1, g: 1, b: 1, a: 1 } : { r: P.bgc[0] / 255, g: P.bgc[1] / 255, b: P.bgc[2] / 255, a: 1 }, loadOp: 'clear', storeOp: 'discard' }],
@@ -1015,6 +1015,11 @@ if (LV2) {                                                  // the pattern splin
     return { N, light: c, lenPerSeg: sl / c, phasePerSeg: sp / c, ratio: sp / sl };
   };
 }
+if (LSQ) window.__sqStats = async () => {                     // debug: how many segments are within 1 degree of horizontal / vertical
+  const N = new Uint32Array(await readBuf(B.meta, 16))[0], pos = new Float32Array(await readBuf(B.pos, N * 8)); let ok = 0, tot = 0;
+  for (let i = 0; i < N; i++) { const j = (i + 1) % N, dx = Math.abs(pos[2 * j] - pos[2 * i]), dy = Math.abs(pos[2 * j + 1] - pos[2 * i + 1]); if (dx + dy < 0.5) continue; tot++; if (Math.min(dx, dy) / Math.max(dx, dy) < 0.0175) ok++; }
+  return { N, aligned: ok / tot };
+};
 initDefaults(D3 ? '.r2' : FL ? '.v1' : '');                            // Dollar 3 r2: near-zero curve amplitude (v1.92)
 
 // ---------------------------------------------------------------- go
