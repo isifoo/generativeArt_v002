@@ -34,3 +34,5 @@ Status: P planned, B built and tested in the browser pane, waiting for Gerry's i
 | 28 | Drop a node on a link: it is inserted in the middle | B | v3.0.1 | link lights up gold |
 | 29 | Node board (chart of nodes, linked to docs/NODE_BOARD.json) | B | v3.0.1 | Chrome / Edge file link; Claude reads the file |
 | 30 | 9 more nodes: Noise, Blur, Edge detect, Threshold, Mosaic, Displace, Track matte, Mix, Echo | B | v3.0.1 | each produces a picture in the pane test |
+| 31 | Source choice lives in the Camera / Video node panel (rule: all node attributes in the panel) | B | v3.0.2 | |
+| 32 | Save project / Open project / New project | B | v3.0.2 | |

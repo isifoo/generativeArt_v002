@@ -105,3 +105,5 @@ body.v3 { height:100%; min-height:100vh; overflow:hidden; display:flex; flex-dir
 .bd-t td:nth-child(1) { width:150px; } .bd-t td:nth-child(2) { width:104px; } .bd-t td:nth-child(3), .bd-t td:nth-child(4) { width:120px; } .bd-t td:nth-child(6) { width:130px; } .bd-t td:nth-child(7) { width:84px; } .bd-t td:nth-child(9) { width:34px; }
 .bd-t tr.st-built td:nth-child(6) select { border-color:#3b8a5a; } .bd-t tr.st-fix td:nth-child(6) select { border-color:#d23219; } .bd-t tr.st-wanted td:nth-child(6) select { border-color:#e8b04a; } .bd-t tr.st-dropped { opacity:.45; }
 .bd-help { margin:10px 0 0; max-width:900px; }
+
+.src3 { margin:6px 0 10px; } .src-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; } .src-row button.on { background:var(--accent); border-color:var(--accent); color:#fff; }

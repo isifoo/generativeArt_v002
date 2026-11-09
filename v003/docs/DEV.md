@@ -26,3 +26,7 @@ Each version: a list of features from FEATURES.md, a test list, and a short READ
 
 ## Notes from the app (Tell Claude)
 Notes live in the database. At the start of each session Claude reads open notes, says what each one means, fixes it, and marks it done in the chart.
+
+## Methodology (Gerry, 2026-11-09)
+1. Every attribute of a node goes in that node's panel. The top bar only holds project-level things (Save / Open / New project, Node board).
+2. A button or control that does nothing is a bug: fix it or remove it.

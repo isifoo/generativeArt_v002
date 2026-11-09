@@ -16,7 +16,8 @@ const canvas = $('#cv'), G = makeGL(canvas);
 if (!G) { msg('WebGL2 is not available in this browser.'); throw new Error('no webgl2'); }
 const vid = $('#vid'), video = { ready: false, w: 1, h: 1, tex: G.texture(2, 2) };
 let usingCam = false;
-function setSourceButtons(which) { for (const [id, k] of [['#cam', 'cam'], ['#test', 'test']]) $(id).classList.toggle('on', which === k); }
+let sourceKind = 'test', sourceName = '';                       // the source is chosen in the Camera / Video node's panel
+function setSourceButtons(which, name = '') { sourceKind = which; sourceName = name; const n = typeof editor !== 'undefined' && editor.selected(); if (n && n.type === 'camera') showParams(n); }
 async function startCamera() {
   try {
     stopStream();
@@ -25,12 +26,10 @@ async function startCamera() {
   } catch (e) { msg('Camera: ' + (e.message || e)); }
 }
 function stopStream() { if (vid.srcObject) { vid.srcObject.getTracks().forEach((t) => t.stop()); vid.srcObject = null; } usingCam = false; }
-$('#cam').onclick = startCamera;
-$('#test').onclick = () => { stopStream(); vid.removeAttribute('src'); vid.load(); setSourceButtons('test'); };
-$('#pick').onclick = () => $('#file').click();
+const useTest = () => { stopStream(); vid.removeAttribute('src'); vid.load(); setSourceButtons('test'); };
 $('#file').onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return; stopStream(); vid.src = URL.createObjectURL(f); vid.loop = true;
-  try { await vid.play(); setSourceButtons('file'); msg(''); } catch (er) { msg('Video: ' + er.message); }
+  try { await vid.play(); setSourceButtons('file', f.name); msg(''); } catch (er) { msg('Video: ' + er.message); }
 };
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('drop', (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { $('#file').files = e.dataTransfer.files; $('#file').onchange({ target: { files: [f] } }); } });
@@ -71,7 +70,13 @@ function showParams(n) {
   for (const [gname, list] of groups) {
     const f = fold(gname, d.title + '/' + gname); params.append(f.el);
     for (const p of list) {
-      if (p.kind === 'toggle') {
+      if (p.kind === 'source') {
+        const box = document.createElement('div'); box.className = 'src3';
+        box.innerHTML = '<div class="src-row"><button type="button" data-s="cam">Camera</button><button type="button" data-s="file">Load video</button><button type="button" data-s="test">Test picture</button></div><div class="note src-info"></div>';
+        for (const b of box.querySelectorAll('button')) { b.classList.toggle('on', b.dataset.s === sourceKind); b.onclick = () => { if (b.dataset.s === 'cam') startCamera(); else if (b.dataset.s === 'file') $('#file').click(); else useTest(); }; }
+        box.querySelector('.src-info').textContent = sourceKind === 'cam' ? 'The camera is on.' : sourceKind === 'file' ? 'Video: ' + sourceName : 'Moving test picture.';
+        f.body.append(box);
+      } else if (p.kind === 'toggle') {
         const l = document.createElement('label'); l.className = 'tg'; l.innerHTML = '<input type="checkbox"><span></span>'; l.querySelector('span').textContent = p.label;
         const c = l.querySelector('input'); c.checked = !!n.params[p.id]; c.onchange = () => { n.params[p.id] = c.checked ? 1 : 0; save(); }; f.body.append(l);
       } else if (p.kind === 'choice') {
@@ -104,11 +109,11 @@ const board = createBoard($('#board'));
 $('#boardbtn').onclick = () => board.toggle();
 
 // ---------------------------------------------------------------- patch files and reset
-$('#savep').onclick = () => { const b = new Blob([JSON.stringify({ app: 'GenerativeArt_v003', graph: graph.toJSON(), palette: serializePalette() }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'patch.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+$('#savep').onclick = () => { const b = new Blob([JSON.stringify({ app: 'GenerativeArt_v003', graph: graph.toJSON(), palette: serializePalette() }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'project.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
 $('#loadp').onclick = () => $('#pfile').click();
 $('#pfile').onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
-  try { const o = JSON.parse(await f.text()), g = Graph.fromJSON(o.graph || o); if (!g) throw new Error('not a patch'); graph = g; if (o.palette) restorePalette(o.palette); editor.setGraph(graph); save(); msg(''); } catch (er) { msg('Patch: ' + er.message); }
+  try { const o = JSON.parse(await f.text()), g = Graph.fromJSON(o.graph || o); if (!g) throw new Error('not a project file'); graph = g; if (o.palette) restorePalette(o.palette); editor.setGraph(graph); save(); msg(''); } catch (er) { msg('Project: ' + er.message); }
   e.target.value = '';
 };
 $('#reset').onclick = () => { graph = defaultGraph(); editor.setGraph(graph); save(); };

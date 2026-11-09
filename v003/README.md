@@ -14,3 +14,7 @@ Tested: browser pane with the mouse (desktop and tablet layout). NOT yet tested 
 - Nodes added: Noise, Blur, Edge detect, Threshold, Mosaic, Displace, Track matte, Mix, Echo. Families now Source, Image, Distort, Composite, Time, Colour, Output.
 - Editor: wiggle a node to pull it out of its links; delete or wiggle keeps the neighbours joined; a node dropped on a link is inserted into it; dragging a link snaps to the nearest matching dot within 70 px.
 - Node board (button at the top): a chart of every node built or wished for. Link it to docs/NODE_BOARD.json (Link file) so Claude reads the same chart.
+
+## v3.0.2
+- Method: every attribute of a node lives in that node's panel. The source choice (Camera, Load video, Test picture) moved from the top bar into the Camera / Video node's panel.
+- Save patch / Load patch are now Save project / Open project; Reset graph is New project (the file holds nodes, links, settings and colours).

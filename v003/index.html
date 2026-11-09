@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>GenerativeArt v003</title>
-<meta name="build" content="20261109213000">
-<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109213000","../colorwheel.js":"../colorwheel.js?b=20261109213000","./slider.js":"./slider.js?b=20261109213000","./gl.js":"./gl.js?b=20261109213000","./nodes.js":"./nodes.js?b=20261109213000","./graph.js":"./graph.js?b=20261109213000","./editor.js":"./editor.js?b=20261109213000","./board.js":"./board.js?b=20261109213000"}}</script>
-<link rel="stylesheet" href="../css/main.css?b=20261109213000">
-<link rel="stylesheet" href="v3.css?b=20261109213000">
+<meta name="build" content="20261109222000">
+<script type="importmap">{"imports":{"../palette.js":"../palette.js?b=20261109222000","../colorwheel.js":"../colorwheel.js?b=20261109222000","./slider.js":"./slider.js?b=20261109222000","./gl.js":"./gl.js?b=20261109222000","./nodes.js":"./nodes.js?b=20261109222000","./graph.js":"./graph.js?b=20261109222000","./editor.js":"./editor.js?b=20261109222000","./board.js":"./board.js?b=20261109222000"}}</script>
+<link rel="stylesheet" href="../css/main.css?b=20261109222000">
+<link rel="stylesheet" href="v3.css?b=20261109222000">
 </head>
 <body class="v3">
 <video id="vid" muted loop playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
@@ -15,13 +15,10 @@
 <header id="top">
   <h1>GenerativeArt_v003</h1><span class="note" id="ver">...</span>
   <div class="row">
-    <button id="cam" type="button">Camera</button>
-    <button id="pick" type="button">Load video</button><input id="file" type="file" accept="video/*" hidden>
-    <button id="test" type="button" class="on">Test picture</button>
-    <span class="sep"></span>
-    <button id="savep" type="button" title="Download this node graph as a file">Save patch</button>
-    <button id="loadp" type="button" title="Load a patch file">Load patch</button><input id="pfile" type="file" accept=".json,application/json" hidden>
-    <button id="reset" type="button" title="Back to the starting graph">Reset graph</button>
+    <input id="file" type="file" accept="video/*" hidden>
+    <button id="savep" type="button" title="Save the whole project (nodes, links, settings, colours) as a file">Save project</button>
+    <button id="loadp" type="button" title="Open a project file">Open project</button><input id="pfile" type="file" accept=".json,application/json" hidden>
+    <button id="reset" type="button" title="Start again with the starting nodes">New project</button>
     <span class="sep"></span>
     <button id="boardbtn" type="button" title="The chart of every node, built or wished for. Claude reads it.">Node board</button>
   </div>

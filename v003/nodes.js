@@ -19,9 +19,9 @@ void main() {
 
 export const NODES = {
   camera: {
-    title: 'Camera / Video', family: 'Source', info: 'The camera or the loaded video, cropped to fill the picture. A moving test picture shows until a source is chosen (buttons at the top).',
+    title: 'Camera / Video', family: 'Source', info: 'The camera or a loaded video, cropped to fill the picture. Choose the source below. A moving test picture shows until a source is chosen.',
     inputs: [], outputs: [{ id: 'out', type: 'image' }],
-    params: [{ id: 'mirror', kind: 'toggle', label: 'Mirror', val: 1 }],
+    params: [{ id: 'source', kind: 'source', label: 'Source', val: 'test' }, { id: 'mirror', kind: 'toggle', label: 'Mirror', val: 1 }],
     run(n, ins, c) {
       const out = c.state(n, 'out');
       if (!c.video.ready) { c.g.pass(TEST, {}, { t: c.time }, out); return { out: out.tex }; }
